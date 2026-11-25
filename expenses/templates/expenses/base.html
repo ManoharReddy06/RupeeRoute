@@ -1,0 +1,244 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}RupeeRoute{% endblock %}</title>
+
+  <!-- Clean Google Font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="{% static 'css/styles.css' %}?v={% now 'U' %}">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('rupeeroute_theme') || 'light';
+        document.documentElement.setAttribute('data-theme', t);
+      } catch (e) {}
+    })();
+  </script>
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+  {% if user.is_authenticated %}
+  <div class="app-wrapper">
+    <!-- Left Sidebar -->
+    <aside class="app-sidebar" id="appSidebar">
+      <div class="sidebar-header">
+        <a href="{% url 'analytics' %}" class="sidebar-brand">
+          <span class="brand-logo">₹</span>
+          <span class="brand-text">RupeeRoute</span>
+        </a>
+      </div>
+
+      <div class="sidebar-menu">
+        <div class="sidebar-label">TRACKERS</div>
+        <a href="{% url 'analytics' %}" class="sidebar-item {% if current_tracker == 'analytics' %}active{% endif %}">
+          <span class="sidebar-item-icon">📊</span>
+          <span class="sidebar-item-text">Analytics</span>
+        </a>
+        <a href="{% url 'home' %}" class="sidebar-item {% if current_tracker == 'personal' or not current_tracker %}active{% endif %}">
+          <span class="sidebar-item-icon">👤</span>
+          <span class="sidebar-item-text">Personal Tracker</span>
+        </a>
+        <a href="{% url 'room_tracker' %}" class="sidebar-item {% if current_tracker == 'sharing' or current_tracker == 'room' %}active{% endif %}">
+          <span class="sidebar-item-icon">👥</span>
+          <span class="sidebar-item-text">Sharing</span>
+        </a>
+        <a href="{% url 'lend_borrow' %}" class="sidebar-item {% if current_tracker == 'lend_borrow' %}active{% endif %}">
+          <span class="sidebar-item-icon">💸</span>
+          <span class="sidebar-item-text">Lend &amp; Borrow</span>
+        </a>
+
+        {% if not request.user.profile.is_viewer %}
+        <div class="sidebar-label" style="margin-top: 0.75rem;">ACCESS MANAGEMENT</div>
+        <a href="{% url 'create_viewer' %}" class="sidebar-item {% if current_tracker == 'viewer' %}active{% endif %}">
+          <span class="sidebar-item-icon">👁️</span>
+          <span class="sidebar-item-text">Create Viewer</span>
+        </a>
+        {% endif %}
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <div class="app-main">
+      <!-- Top Navbar with Breadcrumb & Three-line Menu -->
+      <header class="app-topbar">
+        <div class="topbar-left">
+          <div class="topbar-title">
+            {% if current_tracker == 'analytics' %}
+              <span class="topbar-icon">📊</span> Analytics Overview
+              {% if is_viewer %}
+              <span class="viewer-tag-pill">👀 Viewer Mode (Read-Only)</span>
+              {% endif %}
+            {% elif current_tracker == 'sharing' or current_tracker == 'room' %}
+              <span class="topbar-icon">👥</span> Sharing
+              {% if is_viewer %}
+              <span class="viewer-tag-pill">👀 Viewer Mode (Read-Only)</span>
+              {% endif %}
+            {% elif current_tracker == 'lend_borrow' %}
+              <span class="topbar-icon">💸</span> Lend &amp; Borrow Tracker
+              {% if is_viewer %}
+              <span class="viewer-tag-pill">👀 Viewer Mode (Read-Only)</span>
+              {% endif %}
+            {% elif current_tracker == 'viewer' %}
+              <span class="topbar-icon">👁️</span> Create Viewer Profile
+            {% else %}
+              <span class="topbar-icon">👤</span> Personal Tracker
+              {% if is_viewer %}
+              <span class="viewer-tag-pill">👀 Viewer Mode (Read-Only)</span>
+              {% endif %}
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="topbar-right" style="display: flex; align-items: center; gap: 0.75rem;">
+          <!-- Light / Dark Theme Toggle Button -->
+          <button type="button" class="theme-toggle-btn" id="themeToggleBtn" onclick="toggleTheme();" title="Switch Light / Dark Mode" aria-label="Toggle Dark/Light Theme">
+            <span id="themeToggleIcon">🌙</span>
+          </button>
+
+          <!-- Internal Activity Notification Bell -->
+          <div class="notif-dropdown-wrapper" id="notifMenuDropdown">
+            <button type="button" class="notif-bell-btn" id="notifBellBtn" onclick="toggleNotificationDropdown(event);" title="Activity Notifications" aria-label="Notifications">
+              <span>🔔</span>
+              {% if unread_notifications_count > 0 %}
+              <span class="notif-unread-dot" id="notifUnreadDot" title="{{ unread_notifications_count }} unread">{{ unread_notifications_count }}</span>
+              {% endif %}
+            </button>
+
+            <div class="notif-dropdown-menu" id="notificationDropdownMenu" style="display: none;" onclick="event.stopPropagation();">
+              <div class="notif-dropdown-header">
+                <div class="notif-dropdown-title">
+                  <span>🔔 Notifications</span>
+                  {% if unread_notifications_count > 0 %}
+                  <span class="notif-count-badge" id="notifHeaderCount">{{ unread_notifications_count }} new</span>
+                  {% endif %}
+                </div>
+                {% if unread_notifications_count > 0 and not request.user.profile.is_viewer %}
+                <form method="post" action="{% url 'notifications_mark_all_read' %}" style="margin: 0;">
+                  {% csrf_token %}
+                  <button type="submit" class="notif-mark-read-btn" title="Mark all notifications as read">
+                    ✓ Mark all read
+                  </button>
+                </form>
+                {% endif %}
+              </div>
+
+              <div class="notif-list">
+                {% for n in notifications_list %}
+                <a href="{% url 'notification_click' n.id %}" class="notif-item {% if not n.is_read %}notif-item--unread{% endif %}">
+                  <span class="notif-item__icon">{{ n.action_icon }}</span>
+                  <div class="notif-item__content">
+                    <div class="notif-item__msg">{{ n.message }}</div>
+                    <div class="notif-item__time">{{ n.created_at|date:"d M Y, h:i A" }}</div>
+                  </div>
+                  {% if not n.is_read %}
+                  <span class="notif-item__dot" aria-label="Unread"></span>
+                  {% endif %}
+                </a>
+                {% empty %}
+                <div class="notif-empty">
+                  <div style="font-size: 1.5rem; margin-bottom: 0.35rem;">✨</div>
+                  <div>All caught up!</div>
+                  <small style="color: var(--text-muted);">Roommate &amp; trip updates will appear here.</small>
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+
+          <!-- Three-line Menu (Hamburger) -->
+          <div class="user-menu-dropdown" id="userMenuDropdown">
+            <button type="button" class="three-line-btn" id="threeLineBtn" onclick="toggleUserDropdown(event);" title="Account Menu">
+              <span class="line"></span>
+              <span class="line"></span>
+              <span class="line"></span>
+            </button>
+            <div class="user-dropdown-menu" id="userDropdownMenu" style="display: none;" onclick="event.stopPropagation();">
+              <div class="dropdown-header">
+                <div class="dropdown-avatar">
+                  {% if request.user.profile.avatar %}
+                  <img src="{{ request.user.profile.avatar.url }}" alt="{{ request.user.username }}">
+                  {% else %}
+                  <span>{{ request.user.profile.initials|default:"U" }}</span>
+                  {% endif %}
+                </div>
+                <div class="dropdown-user-details">
+                  <div class="dropdown-username">
+                    {% if request.user.profile.is_viewer %}
+                    👀 {{ request.user.username }} (Viewer)
+                    {% else %}
+                    👤 {{ request.user.username }}
+                    {% endif %}
+                  </div>
+                  {% if request.user.profile.full_name %}
+                  <div class="dropdown-fullname">{{ request.user.profile.full_name }}</div>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="dropdown-divider"></div>
+              <div class="dropdown-items">
+                {% if not request.user.profile.is_viewer %}
+                <a href="{% url 'update_profile' %}" class="dropdown-item">
+                  <span class="dropdown-item-icon">⚙️</span>
+                  <span>Update Profile</span>
+                </a>
+                <a href="{% url 'create_viewer' %}" class="dropdown-item">
+                  <span class="dropdown-item-icon">👁️</span>
+                  <span>Create Viewer</span>
+                </a>
+                {% endif %}
+                <a href="{% url 'logout' %}" class="dropdown-item dropdown-item-danger">
+                  <span class="dropdown-item-icon">🚪</span>
+                  <span>Log Out</span>
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </header>
+  {% else %}
+  <header class="app-nav">
+    <div class="nav-container">
+      <a href="{% url 'analytics' %}" class="nav-brand">
+        <span class="brand-logo">₹</span>
+        <span class="brand-text">RupeeRoute</span>
+      </a>
+
+      <div class="nav-actions">
+        <a href="{% url 'login' %}" class="btn btn-secondary btn-sm">Sign In</a>
+        <a href="{% url 'register' %}" class="btn btn-primary btn-sm">Sign Up</a>
+      </div>
+    </div>
+  </header>
+  {% endif %}
+
+  <!-- Page Content Container -->
+  <main class="app-container">
+    {% if messages %}
+    <div class="flash-messages">
+      {% for message in messages %}
+      <div class="flash-item {{ message.tags }}">
+        <span>{{ message }}</span>
+        <button onclick="this.parentElement.remove()" class="flash-close">&times;</button>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% block content %}{% endblock %}
+  </main>
+
+  {% if user.is_authenticated %}
+    </div> <!-- /app-main -->
+  </div> <!-- /app-wrapper -->
+  {% endif %}
+
+  <script src="{% static 'js/main.js' %}"></script>
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,1562 @@
+{% extends "expenses/base.html" %}
+
+{% block title %}Personal Tracker - RupeeRoute{% endblock %}
+
+{% block content %}
+<div class="tracker-container">
+
+  {% if is_viewer %}
+  <div class="viewer-note-box">
+    <div class="viewer-note-badge">
+      <span class="note-pin">📌</span>
+      <span class="note-title">NOTE:</span>
+    </div>
+    <div class="viewer-note-body">
+      You are viewing <strong>{{ profile.display_name }}</strong>'s RupeeRoute personal tracker in <strong>Read-Only Mode</strong>. All metrics, category breakdowns, and past entries are visible, but adding, editing, and deleting expenses is disabled.
+    </div>
+  </div>
+  {% endif %}
+
+
+  <!-- =========================================================================
+       1. Top Bar: Month & Year Selection
+       ========================================================================= -->
+  <div class="filter-card">
+    <form method="get" id="monthYearForm" class="filter-form">
+      <div class="filter-label">
+        <span>📅 Select Month & Year:</span>
+      </div>
+
+      <div class="filter-controls">
+        <select name="month" class="form-select" onchange="document.getElementById('monthYearForm').submit();">
+          {% for num, name in months_list %}
+          <option value="{{ num }}" {% if num == selected_month %}selected{% endif %}>
+            {{ name }}
+          </option>
+          {% endfor %}
+        </select>
+
+        <select name="year" class="form-select" onchange="document.getElementById('monthYearForm').submit();">
+          {% for y in years_list %}
+          <option value="{{ y }}" {% if y == selected_year %}selected{% endif %}>
+            {{ y }}
+          </option>
+          {% endfor %}
+        </select>
+
+        <noscript>
+          <button type="submit" class="btn btn-secondary btn-sm">Filter</button>
+        </noscript>
+      </div>
+
+      <div class="active-period-badge">
+        Showing: <strong>{{ period_label }}</strong>
+      </div>
+    </form>
+  </div>
+
+
+  <!-- =========================================================================
+       2. Profile Card
+       (Side by Side: Avatar, Name & Age at Left | Spent Boxes at Right)
+       ========================================================================= -->
+  <div class="profile-card">
+    <!-- Left Side: Avatar / Photo, Name, and Age -->
+    <div class="profile-user-info">
+      <div class="profile-avatar-wrapper">
+        {% if profile.avatar %}
+        <img src="{{ profile.avatar.url }}" alt="{{ profile.display_name }}" class="profile-photo">
+        {% else %}
+        <div class="profile-avatar-initials">
+          {{ profile.initials }}
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="profile-user-meta">
+        <h2 class="profile-name">{{ profile.display_name }}</h2>
+        <div class="profile-age">Age: {{ profile.age|default:"Not specified" }} years old</div>
+        <span class="profile-badge">Personal Tracker</span>
+      </div>
+    </div>
+
+    <!-- Right Side: Dual Expense Metric Cards (Current Month & Total Year Spents) -->
+    <div class="expense-metrics-grid">
+      <!-- Month Expense Metric Card -->
+      <div class="metric-card {% if not is_full_year %}active-metric-card{% endif %}">
+        <div class="metric-card-header">
+          <span class="metric-icon">📅</span>
+          <span class="metric-label">
+            {% if is_full_year %}{{ preview_month_name }} Expense ({{ selected_year }}){% else %}Current Month Expense ({{ month_name }} {{ selected_year }}){% endif %}
+          </span>
+        </div>
+        <div class="metric-amount">
+          ₹{{ total_month_spent|floatformat:2 }}
+        </div>
+        <div class="metric-subtext">
+          {{ month_expenses_count }} transaction{{ month_expenses_count|pluralize }} logged
+        </div>
+        {% if is_full_year %}
+        <a href="?month=11&year={{ selected_year }}" class="metric-toggle-btn">
+          View Month Breakdown &rarr;
+        </a>
+        {% else %}
+        <span class="metric-status-tag">Active View</span>
+        {% endif %}
+      </div>
+
+      <!-- Total Year Expense Metric Card -->
+      <div class="metric-card {% if is_full_year %}active-metric-card{% endif %}">
+        <div class="metric-card-header">
+          <span class="metric-icon">🏆</span>
+          <span class="metric-label">Total Year Spend ({{ selected_year }})</span>
+        </div>
+        <div class="metric-amount">
+          ₹{{ total_year_spent|floatformat:2 }}
+        </div>
+        <div class="metric-subtext">
+          {{ year_expenses_count }} transaction{{ year_expenses_count|pluralize }} in {{ selected_year }}
+        </div>
+        {% if not is_full_year %}
+        <a href="?month=0&year={{ selected_year }}" class="metric-toggle-btn">
+          View Year Breakdown &rarr;
+        </a>
+        {% else %}
+        <span class="metric-status-tag">Active View</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+
+  <!-- =========================================================================
+       3. Category Breakdown Tab / Section
+       (Breakdown based on category like Travel, Food, Rent, Shopping, Recharge)
+       ========================================================================= -->
+  <div class="section-card" id="categoriesSection">
+    <div class="section-header">
+      <div class="section-title">
+        <span>📊</span>
+        <span>Personal Expense Breakdown ({{ period_label }})</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+        <span class="badge-pill">{{ category_breakdown|length }} Categories Active</span>
+        {% if not is_viewer %}
+        <button type="button" class="btn btn-secondary btn-sm" onclick="openAddCategoryModal();" style="display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600;">
+          <span>➕</span>
+          <span>Add Category</span>
+        </button>
+        {% endif %}
+        <small style="color: var(--text-muted); font-size: 0.78rem;">(Click any category card to view its spents)</small>
+      </div>
+    </div>
+
+    <div class="section-body">
+      {% if category_breakdown %}
+      <div class="breakdown-grid">
+        {% for cat in category_breakdown %}
+        <div class="breakdown-card category-clickable-card {% if selected_category|lower == cat.name|lower %}active-category-card{% endif %}"
+             onclick="openCategoryDetails('{{ cat.name|escapejs }}');"
+             data-category="{{ cat.name }}"
+             title="Click to view all {{ cat.name }} spents">
+          <div class="breakdown-card-top">
+            <span class="category-tag">
+              <span class="category-icon">🏷️</span>
+              {{ cat.name }}
+            </span>
+            <span class="breakdown-amount">₹{{ cat.amount|floatformat:2 }}</span>
+          </div>
+
+          <!-- Percentage Progress Bar -->
+          <div class="progress-bar-bg">
+            <div class="progress-bar-fill" style="width: {{ cat.percentage }}%;"></div>
+          </div>
+
+          <div class="breakdown-card-bottom">
+            <span>{{ cat.count }} transaction{{ cat.count|pluralize }}</span>
+            <span class="percentage-text">{{ cat.percentage }}% of {{ period_label }}</span>
+          </div>
+
+          <div class="card-click-hint">
+            <span>📂 View {{ cat.name }} spents &rarr;</span>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty-state">
+        <div class="empty-icon">📂</div>
+        <p>No expenses logged for <strong>{{ period_label }}</strong> yet.</p>
+        {% if not is_viewer %}
+        <span class="empty-hint">Click "Enter New Spents" below to record your first expense!</span>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+
+  <div class="section-card" id="historySection">
+    <div class="section-header">
+      <div class="section-title">
+        <span>📝</span>
+        <span>Past Entries Done by Me ({{ period_label }})</span>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+        <button type="button" class="btn-export-pdf" onclick="exportPersonalPdf();" title="Export visible history as PDF">
+          📄 Export PDF
+        </button>
+        {% if not is_viewer %}
+        <button type="button" class="btn btn-primary" onclick="toggleAddExpenseModal();">
+          ➕ Enter New Spents
+        </button>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- =======================================================================
+         Filters Option Above History Details (Date, Category, Amount + Search & Clear)
+         ======================================================================= -->
+    <div class="history-filters-toolbar">
+      <div class="filters-toolbar-header">
+        <div class="filters-toolbar-title">
+          <span>🔍</span>
+          <span>Filter Spents</span>
+          <span class="filters-toolbar-subtitle">(Filter by particular date, category, or amount)</span>
+        </div>
+        <div class="filters-toolbar-actions">
+          <span id="historyFilterLiveBadge" class="filter-count-badge" style="display: none;"></span>
+        </div>
+      </div>
+
+      <div class="filters-grid">
+        <!-- 1. Particular Date Filter with per-field X clear button -->
+        <div class="filter-control-item">
+          <label for="historyFilterDate" class="filter-control-label">
+            📅 Particular Date
+          </label>
+          <div class="field-with-clear-wrap">
+            <input type="date"
+                   id="historyFilterDate"
+                   class="filter-input-field"
+                   value="{{ filter_date }}"
+                   oninput="updateClearButtonsVisibility();"
+                   onchange="updateClearButtonsVisibility();"
+                   title="Filter by exact date">
+            <button type="button"
+                    class="field-clear-btn"
+                    id="clearDateBtn"
+                    onclick="clearFilterDate();"
+                    title="Clear date"
+                    style="display: none;">
+              ✕
+            </button>
+          </div>
+        </div>
+
+        <!-- 2. Category Filter with per-field X clear button -->
+        <div class="filter-control-item">
+          <label for="historyFilterCategory" class="filter-control-label">
+            🏷️ Category
+          </label>
+          <div class="field-with-clear-wrap">
+            <select id="historyFilterCategory"
+                    class="filter-select-field"
+                    onchange="updateClearButtonsVisibility();"
+                    title="Filter by category">
+              <option value="all">All Categories</option>
+              {% for cat in category_breakdown %}
+              <option value="{{ cat.name }}" {% if selected_category|lower == cat.name|lower %}selected{% endif %}>
+                {{ cat.name }} ({{ cat.count }})
+              </option>
+              {% endfor %}
+            </select>
+            <button type="button"
+                    class="field-clear-btn"
+                    id="clearCategoryBtn"
+                    onclick="clearFilterCategory();"
+                    title="Clear category"
+                    style="display: none;">
+              ✕
+            </button>
+          </div>
+        </div>
+
+        <!-- 3. Amount Filter (Min & Max Range) with per-field X clear button -->
+        <div class="filter-control-item amount-filter-item">
+          <label class="filter-control-label">
+            💰 Amount (₹ INR Range)
+          </label>
+          <div class="field-with-clear-wrap">
+            <div class="filter-amount-range">
+              <div class="amount-input-wrapper">
+                <span class="amount-curr">₹</span>
+                <input type="number"
+                       id="historyFilterMinAmount"
+                       class="filter-input-field amount-sub-input"
+                       placeholder="Min ₹"
+                       step="any"
+                       min="0"
+                       value="{{ min_amount_param }}"
+                       oninput="updateClearButtonsVisibility();"
+                       onchange="updateClearButtonsVisibility();"
+                       onkeyup="updateClearButtonsVisibility();"
+                       title="Minimum Amount">
+              </div>
+              <span class="amount-range-sep">&ndash;</span>
+              <div class="amount-input-wrapper">
+                <span class="amount-curr">₹</span>
+                <input type="number"
+                       id="historyFilterMaxAmount"
+                       class="filter-input-field amount-sub-input"
+                       placeholder="Max ₹"
+                       step="any"
+                       min="0"
+                       value="{{ max_amount_param }}"
+                       oninput="updateClearButtonsVisibility();"
+                       onchange="updateClearButtonsVisibility();"
+                       onkeyup="updateClearButtonsVisibility();"
+                       title="Maximum Amount">
+              </div>
+            </div>
+            <button type="button"
+                    class="field-clear-btn"
+                    id="clearAmountBtn"
+                    onclick="clearFilterAmount();"
+                    title="Clear amount filter"
+                    style="display: none;">
+              ✕
+            </button>
+          </div>
+        </div>
+
+        <!-- 4. Search & Clear Buttons (Compact Icon Only) -->
+        <div class="filter-control-item filter-btn-item">
+          <label class="filter-control-label" style="opacity: 0; pointer-events: none;">&nbsp;</label>
+          <div class="filter-btn-group">
+            <button type="button"
+                    id="searchFiltersBtn"
+                    class="filter-icon-btn btn-search-spents"
+                    onclick="applyHistoryFilters();"
+                    title="Search spents with selected filters">
+              🔍
+            </button>
+            <button type="button"
+                    id="resetAllFiltersBtn"
+                    class="filter-icon-btn btn-reset-all"
+                    onclick="resetAllFilters();"
+                    title="Clear all filters">
+              ✕
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Active Category Filter Banner (when filtered via card click) -->
+    <div id="categoryFilterBanner" class="category-filter-banner" style="{% if not selected_category %}display: none;{% endif %}">
+      <div class="filter-banner-text">
+        <span>🏷️ Filtered by Category:</span>
+        <strong id="filterBannerCategoryName" class="filter-pill-active">{{ selected_category|default:"All" }}</strong>
+        <span id="filterBannerCount" class="filter-count-text"></span>
+      </div>
+      <button type="button" class="btn-clear-filter" onclick="resetHistoryFilters();">
+        ✕ Show All Categories
+      </button>
+    </div>
+
+    {% if not is_viewer %}
+    <div id="addExpenseModal" class="entry-box" style="display: none;">
+      <div class="entry-box-header">
+        <span class="entry-box-title">Enter New Spent</span>
+        <button type="button" class="close-btn" onclick="toggleAddExpenseModal();">&times;</button>
+      </div>
+
+      <form method="post" action="{% url 'add_expense' %}">
+        {% csrf_token %}
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label">Date *</label>
+            {{ expense_form.date }}
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Amount (₹ INR) *</label>
+            <div style="position: relative;">
+              <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-weight: 700; color: var(--text-muted);">₹</span>
+              <input type="number" id="addExpenseAmountInput" name="amount" step="0.01" min="0.01" class="form-input" style="padding-left: 28px; font-weight: 700;" placeholder="0.00" oninput="updateSplitCalculationPreview();" required>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label">Description *</label>
+            {{ expense_form.description }}
+            <small style="color:var(--text-muted); font-size:0.75rem;">e.g. Curd, Rapido, Chicken, Room Rent, T-Shirt</small>
+          </div>
+
+          <div class="form-group">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+              <label class="form-label" style="margin-bottom: 0;">Category *</label>
+              <button type="button" onclick="openAddCategoryModal();" style="font-size: 0.78rem; color: var(--accent-primary); font-weight: 600; cursor: pointer; background: none; border: none; padding: 0;">
+                ➕ Add New Category
+              </button>
+            </div>
+            <select name="category" id="addExpenseCategorySelect" class="styled-category-select" onchange="handleAddCategorySelectChange(this);" required>
+              <option value="" disabled selected>-- Select a Category --</option>
+              {% for cat in available_categories %}
+              <option value="{{ cat }}">{{ cat }}</option>
+              {% endfor %}
+              <option value="__custom__" style="color: var(--accent-primary); font-weight: 700;">➕ + Add New Category...</option>
+            </select>
+            <small style="color:var(--text-muted); font-size:0.75rem; display: block; margin-top: 0.25rem;">Select from list or click 'Add New Category'</small>
+          </div>
+        </div>
+
+        <!-- Optional Split Across Months Section -->
+        <div class="split-expense-wrapper" style="background: #f8fafc; border: 1.5px dashed #cbd5e1; border-radius: var(--radius-sm); padding: 0.85rem 1rem; margin-bottom: 1.25rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+            <label for="enableSplitCheckbox" style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.88rem; font-weight: 700; color: var(--text-primary); cursor: pointer; margin: 0;">
+              <input type="checkbox" id="enableSplitCheckbox" name="is_split" value="true" onchange="toggleSplitOptions(this);" style="width: 17px; height: 17px; cursor: pointer; accent-color: var(--accent-primary);">
+              <span>🔄 Split Expense Across Multiple Months (Optional)</span>
+            </label>
+            <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 500;">e.g. Gym 3-month fee, Rent advance, Insurance</span>
+          </div>
+
+          <!-- Hidden by default until checkbox is checked -->
+          <div id="splitOptionsContainer" style="display: none; margin-top: 0.85rem; padding-top: 0.85rem; border-top: 1px solid #e2e8f0;">
+            <div class="form-grid" style="margin-bottom: 0.5rem;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label" style="font-size: 0.82rem;">Number of Months to Split *</label>
+                <select name="split_months" id="splitMonthsSelect" class="styled-category-select" style="padding: 0.5rem 0.75rem; font-size: 0.88rem;" onchange="updateSplitCalculationPreview();">
+                  <option value="2">2 Months (e.g. Nov, Dec)</option>
+                  <option value="3" selected>3 Months (e.g. Nov, Dec, Jan)</option>
+                  <option value="4">4 Months</option>
+                  <option value="5">5 Months</option>
+                  <option value="6">6 Months (Half year)</option>
+                  <option value="9">9 Months</option>
+                  <option value="12">12 Months (Full year)</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label" style="font-size: 0.82rem;">Monthly Split Summary</label>
+                <div id="splitPreviewBadge" style="background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; padding: 0.55rem 0.85rem; border-radius: var(--radius-sm); font-size: 0.85rem; font-weight: 700; min-height: 38px; display: flex; align-items: center;">
+                  Enter amount above to see split
+                </div>
+              </div>
+            </div>
+            <div id="splitMonthsListPreview" style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.5rem; background: #ffffff; border: 1px solid #e2e8f0; border-radius: var(--radius-sm); padding: 0.5rem 0.75rem; display: none;">
+              <!-- Dynamic month names and split breakdown will appear here -->
+            </div>
+          </div>
+        </div>
+
+        <div class="entry-box-actions">
+          <button type="button" class="btn btn-secondary" onclick="toggleAddExpenseModal();">Cancel</button>
+          <button type="submit" class="btn btn-primary" style="padding: 0.6rem 1.5rem;">
+            Add Spent &rarr;
+          </button>
+        </div>
+      </form>
+    </div>
+    {% endif %}
+
+    <!-- Past Entries Table -->
+    <div class="table-responsive">
+      <table class="data-table" id="mainExpensesTable">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Description</th>
+            <th>Category</th>
+            <th style="text-align: right;">Amount (₹)</th>
+            {% if not is_viewer %}<th style="text-align: right;">Action</th>{% endif %}
+          </tr>
+        </thead>
+        <tbody id="mainExpensesTableBody">
+          {% for exp in all_expenses %}
+          <tr class="expense-row"
+              data-date="{{ exp.date|date:'Y-m-d' }}"
+              data-category="{{ exp.category|lower }}"
+              data-amount="{{ exp.amount }}"
+              id="expense-row-{{ exp.id }}">
+            <td style="white-space: nowrap; color: var(--text-muted); font-size: 0.85rem;">
+              {{ exp.date|date:"d/m/Y" }}
+            </td>
+            <td class="col-primary">
+              {{ exp.description }}
+              {% if exp.is_shared %}
+              <span class="sharing-badge-pill" style="display: inline-block; font-size: 0.72rem; padding: 0.15rem 0.45rem; background: #e0e7ff; color: #4338ca; border-radius: 9999px; font-weight: 700; margin-left: 0.4rem; vertical-align: middle;" title="Shared bill from {{ exp.group_name }} (Paid by {{ exp.shared_paid_by }})">
+                👥 {{ exp.group_name }} Share
+              </span>
+              {% endif %}
+            </td>
+            <td>
+              <span class="category-pill clickable-pill" onclick="openCategoryDetails('{{ exp.category|escapejs }}');" title="Filter by {{ exp.category }}">
+                {{ exp.category }}
+              </span>
+            </td>
+            <td class="col-amount">
+              ₹{{ exp.amount|floatformat:2 }}
+              {% if exp.is_shared %}
+              <div style="font-size: 0.72rem; color: var(--text-muted); font-weight: normal;">
+                (of ₹{{ exp.shared_total_bill|floatformat:2 }})
+              </div>
+              {% endif %}
+            </td>
+            {% if not is_viewer %}
+            <td style="text-align: right; white-space: nowrap;">
+              {% if exp.is_shared %}
+              <a href="{% url 'room_tracker' %}?mode={{ exp.group_type }}" class="btn btn-secondary btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.5rem; text-decoration: none;" title="View shared bill in {{ exp.group_name }}">
+                👥 View in Hub &rarr;
+              </a>
+              {% else %}
+              <button type="button"
+                      class="btn-edit"
+                      title="Edit this spent"
+                      onclick="openEditExpenseModal({{ exp.id }}, '{{ exp.date|date:'Y-m-d' }}', '{{ exp.description|escapejs }}', '{{ exp.category|escapejs }}', '{{ exp.amount }}');">
+                ✏️
+              </button>
+              <form method="post" action="{% url 'delete_expense' expense_id=exp.id %}" style="display: inline;">
+                {% csrf_token %}
+                <button type="submit" class="btn-delete" title="Delete entry" onclick="return confirm('Delete this spent entry?');">
+                  🗑️
+                </button>
+              </form>
+              {% endif %}
+            </td>
+            {% endif %}
+          </tr>
+          {% empty %}
+          <tr id="emptyTableRow">
+            <td colspan="{% if is_viewer %}4{% else %}5{% endif %}" class="table-empty-row">
+              No past entries found for {{ period_label }}.{% if not is_viewer %} Click <strong>"Enter New Spents"</strong> above to add one!{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+
+          <!-- Filter No Match Row -->
+          <tr id="filterNoMatchRow" style="display: none;">
+            <td colspan="{% if is_viewer %}4{% else %}5{% endif %}" class="table-empty-row" style="background: #fafbfc; padding: 2rem !important;">
+              <div style="font-size: 1.6rem; margin-bottom: 0.35rem;">🔍</div>
+              <strong style="color: var(--text-primary); font-size: 0.95rem;">No spents match your selected filters.</strong>
+              <div style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem;">
+                Try adjusting your Date, Category, or Amount range.
+              </div>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="resetHistoryFilters();" style="margin-top: 0.75rem;">
+                ✕ Reset All Filters
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div id="personalHistoryPagination" class="pagination-bar" style="display: none;"></div>
+  </div>
+
+  <!-- =========================================================================
+       5. Category Details Modal Popup
+       (Opens when clicking any category card)
+       ========================================================================= -->
+  <div id="categoryHistoryModal" class="modal-backdrop" style="display: none;" onclick="handleModalBackdropClick(event);">
+    <div class="modal-card" onclick="event.stopPropagation();">
+      <div class="modal-header">
+        <div>
+          <div class="modal-eyebrow">Category History &bull; {{ period_label }}</div>
+          <h3 class="modal-title" id="modalCategoryTitle">Category Name</h3>
+        </div>
+        <button type="button" class="modal-close-btn" onclick="closeCategoryModal();" title="Close">&times;</button>
+      </div>
+
+      <!-- Quick KPI Strip -->
+      <div class="modal-kpi-grid">
+        <div class="modal-kpi-card">
+          <span class="modal-kpi-label">Total Spent</span>
+          <span class="modal-kpi-value" id="modalCategoryTotal">₹0.00</span>
+        </div>
+        <div class="modal-kpi-card">
+          <span class="modal-kpi-label">Share of Period</span>
+          <span class="modal-kpi-value" id="modalCategoryPercent">0%</span>
+        </div>
+        <div class="modal-kpi-card">
+          <span class="modal-kpi-label">Transactions</span>
+          <span class="modal-kpi-value" id="modalCategoryCount">0</span>
+        </div>
+      </div>
+
+      <!-- Itemized Spents in this Category -->
+      <div class="modal-body-section">
+        <div class="modal-section-title">
+          <span>📝 Itemized Spents</span>
+        </div>
+        <div class="table-responsive" style="max-height: 280px; overflow-y: auto;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Description</th>
+                <th style="text-align: right;">Amount (₹)</th>
+                {% if not is_viewer %}<th style="text-align: right;">Action</th>{% endif %}
+              </tr>
+            </thead>
+            <tbody id="modalCategoryTableBody">
+              <!-- Dynamically populated from JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="modal-footer">
+        <button type="button" class="btn-export-pdf" onclick="exportPersonalCategoryPdf();" title="Export this category's bills to PDF">
+          📄 Export PDF
+        </button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="closeCategoryModal();">
+          Close
+        </button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="filterMainTableFromModal();" title="Filter Past Entries table by this category">
+          🔍 Filter in Table
+        </button>
+        {% if not is_viewer %}
+        <button type="button" class="btn btn-primary btn-sm" id="modalAddSpentBtn" onclick="quickAddSpentForCategory();">
+          ➕ Add Spent in this Category
+        </button>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       6. Edit Spent Modal
+       ========================================================================= -->
+  <div id="editExpenseModal" class="modal-backdrop" style="display: none;" onclick="handleEditModalBackdropClick(event);">
+    <div class="modal-card" style="max-width: 520px;" onclick="event.stopPropagation();">
+      <div class="modal-header">
+        <div>
+          <div class="modal-eyebrow">Modify Entry</div>
+          <h3 class="modal-title">✏️ Edit Spent</h3>
+        </div>
+        <button type="button" class="modal-close-btn" onclick="closeEditExpenseModal();">&times;</button>
+      </div>
+
+      <form method="post" id="editExpenseForm" action="">
+        {% csrf_token %}
+        <div class="modal-body-section" style="padding-top: 1.25rem;">
+          <div class="form-grid" style="margin-bottom: 1rem;">
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label">Date *</label>
+              <input type="date" name="date" id="editDateInput" class="form-input" required>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label">Amount (₹ INR) *</label>
+              <div style="position: relative;">
+                <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-weight: 700; color: var(--text-muted);">₹</span>
+                <input type="number" name="amount" id="editAmountInput" step="0.01" min="0.01" class="form-input" style="padding-left: 28px; font-weight: 700;" required>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Description *</label>
+            <input type="text" name="description" id="editDescriptionInput" class="form-input" placeholder="e.g. Curd, Rapido, Chicken" required>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 0.5rem;">
+            <label class="form-label">Category *</label>
+            <select name="category" id="editCategorySelect" class="form-select" required onchange="handleEditCategoryChange(this);" style="font-weight: 600; padding: 0.65rem 0.85rem; border: 1.5px solid var(--border-color); border-radius: var(--radius-sm); width: 100%; background-color: var(--bg-card); cursor: pointer;">
+              {% for cat_opt in available_categories %}
+              <option value="{{ cat_opt }}">{{ cat_opt }}</option>
+              {% empty %}
+              <option value="Food">Food</option>
+              <option value="Food/Curd">Food/Curd</option>
+              <option value="Travel">Travel</option>
+              <option value="Rent">Rent</option>
+              <option value="Shopping">Shopping</option>
+              <option value="Recharge">Recharge</option>
+              <option value="Entertainment">Entertainment</option>
+              <option value="Other">Other</option>
+              {% endfor %}
+              <option value="__custom__">➕ + Custom Category...</option>
+            </select>
+
+            <div id="editCustomCategoryContainer" style="display: none; margin-top: 0.5rem;">
+              <input type="text" id="editCustomCategoryInput" class="form-input" placeholder="Type custom category name...">
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="closeEditExpenseModal();">
+            Cancel
+          </button>
+          <button type="submit" class="btn btn-primary btn-sm" style="padding: 0.5rem 1.25rem;">
+            💾 Save Changes
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       7. Add New Category Modal
+       ========================================================================= -->
+  {% if not is_viewer %}
+  <div id="addCategoryModal" class="modal-backdrop" style="display: none;" onclick="handleAddCategoryModalBackdropClick(event);">
+    <div class="modal-card" style="max-width: 440px;" onclick="event.stopPropagation();">
+      <div class="modal-header">
+        <div>
+          <div class="modal-eyebrow">Category Setup</div>
+          <h3 class="modal-title">🏷️ Add New Category</h3>
+        </div>
+        <button type="button" class="modal-close-btn" onclick="closeAddCategoryModal();" title="Close">&times;</button>
+      </div>
+
+      <div class="modal-body-section" style="padding-top: 1.25rem;">
+        <div class="form-group" style="margin-bottom: 0.5rem;">
+          <label class="form-label" for="newCategoryInputName">Category Name *</label>
+          <input type="text" id="newCategoryInputName" class="form-input" placeholder="e.g. Gym, Medical, Fuel, Groceries" maxlength="40" required>
+          <small style="color: var(--text-muted); font-size: 0.75rem; display: block; margin-top: 0.35rem;">
+            This new category will immediately reflect in dropdowns and when logging spents.
+          </small>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="closeAddCategoryModal();">Cancel</button>
+        <button type="button" class="btn btn-primary btn-sm" onclick="submitNewCategory();">
+          💾 Save & Select
+        </button>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+
+<!-- Safe JSON representation of category breakdown and items -->
+<script id="categoriesJsonData" type="application/json">{{ category_breakdown_json|safe }}</script>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const isViewerMode = {{ is_viewer|yesno:"true,false" }};
+let activeCategoryName = "{{ selected_category|escapejs }}";
+
+// Parse category JSON data
+let categoriesData = [];
+try {
+  const jsonElem = document.getElementById('categoriesJsonData');
+  if (jsonElem && jsonElem.textContent) {
+    categoriesData = JSON.parse(jsonElem.textContent);
+  }
+} catch (e) {
+  console.error('Error parsing categories JSON:', e);
+}
+
+// Helper to get CSRF token
+function getCsrfToken() {
+  const input = document.querySelector('input[name="csrfmiddlewaretoken"]');
+  return input ? input.value : '';
+}
+
+// 1. Dynamic Visibility of Per-Field ✕ Clear Buttons
+function updateClearButtonsVisibility() {
+  const dateInput = document.getElementById('historyFilterDate');
+  const catSelect = document.getElementById('historyFilterCategory');
+  const minInput = document.getElementById('historyFilterMinAmount');
+  const maxInput = document.getElementById('historyFilterMaxAmount');
+
+  const clearDateBtn = document.getElementById('clearDateBtn');
+  const clearCatBtn = document.getElementById('clearCategoryBtn');
+  const clearAmtBtn = document.getElementById('clearAmountBtn');
+
+  const hasDate = Boolean(dateInput && dateInput.value.trim() !== '');
+  const hasCat = Boolean(catSelect && catSelect.value.trim() !== '' && catSelect.value.trim().toLowerCase() !== 'all');
+  const hasMin = Boolean(minInput && minInput.value.trim() !== '');
+  const hasMax = Boolean(maxInput && maxInput.value.trim() !== '');
+  const hasAmount = hasMin || hasMax;
+
+  if (clearDateBtn) clearDateBtn.style.display = hasDate ? 'flex' : 'none';
+  if (clearCatBtn) clearCatBtn.style.display = hasCat ? 'flex' : 'none';
+  if (clearAmtBtn) clearAmtBtn.style.display = hasAmount ? 'flex' : 'none';
+}
+
+// 2. Individual Per-Field ✕ Clear Functions
+function clearFilterDate() {
+  const dateInput = document.getElementById('historyFilterDate');
+  if (dateInput) dateInput.value = '';
+  updateClearButtonsVisibility();
+  applyHistoryFilters();
+}
+
+function clearFilterCategory() {
+  const catSelect = document.getElementById('historyFilterCategory');
+  if (catSelect) catSelect.value = 'all';
+  activeCategoryName = '';
+  updateClearButtonsVisibility();
+  applyHistoryFilters();
+}
+
+function clearFilterAmount() {
+  const minInput = document.getElementById('historyFilterMinAmount');
+  const maxInput = document.getElementById('historyFilterMaxAmount');
+  if (minInput) minInput.value = '';
+  if (maxInput) maxInput.value = '';
+  updateClearButtonsVisibility();
+  applyHistoryFilters();
+}
+
+function resetAllFilters() {
+  const dateInput = document.getElementById('historyFilterDate');
+  const catSelect = document.getElementById('historyFilterCategory');
+  const minInput = document.getElementById('historyFilterMinAmount');
+  const maxInput = document.getElementById('historyFilterMaxAmount');
+
+  if (dateInput) dateInput.value = '';
+  if (catSelect) catSelect.value = 'all';
+  if (minInput) minInput.value = '';
+  if (maxInput) maxInput.value = '';
+
+  activeCategoryName = '';
+  updateClearButtonsVisibility();
+  applyHistoryFilters();
+}
+
+// Alias for banner reset button
+function resetHistoryFilters() {
+  resetAllFilters();
+}
+
+// 3. Search / Filter Spents Execution
+function applyHistoryFilters() {
+  updateClearButtonsVisibility();
+
+  const dateInput = document.getElementById('historyFilterDate');
+  const catSelect = document.getElementById('historyFilterCategory');
+  const minInput = document.getElementById('historyFilterMinAmount');
+  const maxInput = document.getElementById('historyFilterMaxAmount');
+
+  const selectedDate = dateInput ? dateInput.value.trim() : '';
+  const selectedCat = catSelect ? catSelect.value.trim().toLowerCase() : 'all';
+  const minAmtStr = minInput ? minInput.value.trim() : '';
+  const maxAmtStr = maxInput ? maxInput.value.trim() : '';
+
+  const minAmt = minAmtStr !== '' ? parseFloat(minAmtStr) : null;
+  const maxAmt = maxAmtStr !== '' ? parseFloat(maxAmtStr) : null;
+
+  const hasFilter = selectedDate !== '' ||
+                    (selectedCat !== 'all' && selectedCat !== '') ||
+                    (minAmt !== null && !isNaN(minAmt)) ||
+                    (maxAmt !== null && !isNaN(maxAmt));
+
+  let matchCount = 0;
+  let matchTotal = 0;
+
+  const rows = document.querySelectorAll('#mainExpensesTableBody tr.expense-row');
+  rows.forEach(row => {
+    const rowDate = row.getAttribute('data-date') || '';
+    const rowCat = (row.getAttribute('data-category') || '').toLowerCase();
+    const rowAmt = parseFloat(row.getAttribute('data-amount') || '0');
+
+    let isVisible = true;
+
+    // Filter 1: Particular Date
+    if (selectedDate && rowDate !== selectedDate) {
+      isVisible = false;
+    }
+
+    // Filter 2: Category
+    if (selectedCat && selectedCat !== 'all' && rowCat !== selectedCat) {
+      isVisible = false;
+    }
+
+    // Filter 3: Min Amount
+    if (minAmt !== null && !isNaN(minAmt) && rowAmt < minAmt) {
+      isVisible = false;
+    }
+
+    // Filter 4: Max Amount
+    if (maxAmt !== null && !isNaN(maxAmt) && rowAmt > maxAmt) {
+      isVisible = false;
+    }
+
+    if (isVisible) {
+      row.dataset.filterHidden = '0';
+      matchCount++;
+      matchTotal += rowAmt;
+    } else {
+      row.dataset.filterHidden = '1';
+      row.style.display = 'none';
+    }
+  });
+
+  if (typeof RupeePaginator !== 'undefined') {
+    RupeePaginator.apply('personal', 1);
+  }
+
+  // Highlight active category card in breakdown section above
+  document.querySelectorAll('.breakdown-card').forEach(card => {
+    const cardCat = (card.getAttribute('data-category') || '').toLowerCase();
+    if (selectedCat !== 'all' && selectedCat !== '' && cardCat === selectedCat) {
+      card.classList.add('active-category-card');
+    } else {
+      card.classList.remove('active-category-card');
+    }
+  });
+
+  // Update Toolbar Live Badge
+  const liveBadge = document.getElementById('historyFilterLiveBadge');
+  const noMatchRow = document.getElementById('filterNoMatchRow');
+
+  if (liveBadge) {
+    if (hasFilter) {
+      liveBadge.style.display = 'inline-block';
+      liveBadge.textContent = `Showing ${matchCount} of ${rows.length} spents • Total: ₹${matchTotal.toFixed(2)}`;
+    } else {
+      liveBadge.style.display = 'none';
+    }
+  }
+
+  if (noMatchRow) {
+    noMatchRow.style.display = (hasFilter && matchCount === 0 && rows.length > 0) ? '' : 'none';
+  }
+
+  // Active Category Banner
+  const banner = document.getElementById('categoryFilterBanner');
+  const catLabel = document.getElementById('filterBannerCategoryName');
+  const countLabel = document.getElementById('filterBannerCount');
+  if (banner) {
+    if (selectedCat !== 'all' && selectedCat !== '') {
+      banner.style.display = 'flex';
+      if (catLabel) catLabel.textContent = catSelect ? catSelect.options[catSelect.selectedIndex].text : selectedCat;
+      if (countLabel) countLabel.textContent = `(${matchCount} visible • ₹${matchTotal.toFixed(2)})`;
+    } else {
+      banner.style.display = 'none';
+    }
+  }
+}
+
+// 4. Open Category Details Modal & Itemized Transactions
+function openCategoryDetails(catName) {
+  if (!catName) return;
+  activeCategoryName = catName;
+
+  const category = categoriesData.find(c => c.name.toLowerCase() === catName.toLowerCase());
+
+  const modal = document.getElementById('categoryHistoryModal');
+  const titleElem = document.getElementById('modalCategoryTitle');
+  const totalElem = document.getElementById('modalCategoryTotal');
+  const percentElem = document.getElementById('modalCategoryPercent');
+  const countElem = document.getElementById('modalCategoryCount');
+  const tableBody = document.getElementById('modalCategoryTableBody');
+  const addBtn = document.getElementById('modalAddSpentBtn');
+
+  if (!modal || !tableBody) return;
+
+  const displayName = category ? category.name : catName;
+  const displayTotal = category ? category.amount : '0.00';
+  const displayPercent = category ? category.percentage : '0';
+  const displayCount = category ? category.count : '0';
+
+  if (titleElem) titleElem.textContent = displayName;
+  if (totalElem) totalElem.textContent = '₹' + displayTotal;
+  if (percentElem) percentElem.textContent = displayPercent + '%';
+  if (countElem) countElem.textContent = displayCount;
+  if (addBtn) addBtn.textContent = '➕ Add Spent in ' + displayName;
+
+  // Build rows using safe DOM manipulation
+  tableBody.innerHTML = '';
+  const items = category && category.items ? category.items : [];
+
+  if (items.length > 0) {
+    items.forEach(item => {
+      const tr = document.createElement('tr');
+
+      // Date
+      const tdDate = document.createElement('td');
+      tdDate.style.whiteSpace = 'nowrap';
+      tdDate.style.color = 'var(--text-muted)';
+      tdDate.style.fontSize = '0.85rem';
+      tdDate.textContent = item.date;
+      tr.appendChild(tdDate);
+
+      // Description
+      const tdDesc = document.createElement('td');
+      tdDesc.className = 'col-primary';
+      tdDesc.style.fontWeight = '700';
+      tdDesc.textContent = item.description;
+      tr.appendChild(tdDesc);
+
+      // Amount
+      const tdAmt = document.createElement('td');
+      tdAmt.className = 'col-amount';
+      tdAmt.style.textAlign = 'right';
+      tdAmt.style.fontWeight = '800';
+      tdAmt.textContent = '₹' + item.amount;
+      tr.appendChild(tdAmt);
+
+      // Action (Edit & Delete) - only for owners, hidden for viewers
+      if (!isViewerMode) {
+        const tdAction = document.createElement('td');
+        tdAction.style.textAlign = 'right';
+        tdAction.style.whiteSpace = 'nowrap';
+
+        if (item.is_shared) {
+          const viewHub = document.createElement('a');
+          viewHub.href = '/sharing/';
+          viewHub.className = 'btn btn-secondary btn-sm';
+          viewHub.style.fontSize = '0.75rem';
+          viewHub.style.padding = '0.2rem 0.5rem';
+          viewHub.style.textDecoration = 'none';
+          viewHub.title = 'View shared bill in Sharing Hub';
+          viewHub.textContent = '👥 Hub';
+          tdAction.appendChild(viewHub);
+        } else {
+          // Edit Button
+          const editBtn = document.createElement('button');
+          editBtn.type = 'button';
+          editBtn.className = 'btn-edit';
+          editBtn.title = 'Edit spent';
+          editBtn.textContent = '✏️';
+          editBtn.onclick = function() {
+            closeCategoryModal();
+            openEditExpenseModal(item.id, item.raw_date, item.description, item.category || displayName, item.amount);
+          };
+          tdAction.appendChild(editBtn);
+
+          // Delete Form
+          const delForm = document.createElement('form');
+          delForm.method = 'post';
+          delForm.action = item.delete_url;
+          delForm.style.display = 'inline';
+
+          const csrfInput = document.createElement('input');
+          csrfInput.type = 'hidden';
+          csrfInput.name = 'csrfmiddlewaretoken';
+          csrfInput.value = getCsrfToken();
+          delForm.appendChild(csrfInput);
+
+          const delBtn = document.createElement('button');
+          delBtn.type = 'submit';
+          delBtn.className = 'btn-delete';
+          delBtn.title = 'Delete entry';
+          delBtn.textContent = '🗑️';
+          delBtn.onclick = function() {
+            return confirm('Delete this spent entry?');
+          };
+          delForm.appendChild(delBtn);
+
+          tdAction.appendChild(delForm);
+        }
+        tr.appendChild(tdAction);
+      }
+
+      tableBody.appendChild(tr);
+    });
+  } else {
+    const emptyTr = document.createElement('tr');
+    const emptyTd = document.createElement('td');
+    emptyTd.colSpan = isViewerMode ? 3 : 4;
+    emptyTd.className = 'table-empty-row';
+    emptyTd.textContent = 'No entries found in this category.';
+    emptyTr.appendChild(emptyTd);
+    tableBody.appendChild(emptyTr);
+  }
+
+  modal.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+// Filter main table from inside Category Modal
+function filterMainTableFromModal() {
+  if (activeCategoryName) {
+    const catSelect = document.getElementById('historyFilterCategory');
+    if (catSelect) {
+      catSelect.value = activeCategoryName;
+    }
+    closeCategoryModal();
+    updateClearButtonsVisibility();
+    applyHistoryFilters();
+    const historySec = document.getElementById('historySection');
+    if (historySec) historySec.scrollIntoView({ behavior: 'smooth' });
+  }
+}
+
+// Close Category Modal
+function closeCategoryModal() {
+  const modal = document.getElementById('categoryHistoryModal');
+  if (modal) {
+    modal.style.display = 'none';
+    document.body.style.overflow = 'auto';
+  }
+}
+
+function handleModalBackdropClick(event) {
+  if (event.target && event.target.id === 'categoryHistoryModal') {
+    closeCategoryModal();
+  }
+}
+
+// 5. Quick Add Spent for currently viewed category
+function quickAddSpentForCategory() {
+  closeCategoryModal();
+  const box = document.getElementById('addExpenseModal');
+  if (box) {
+    box.style.display = 'block';
+    box.scrollIntoView({ behavior: 'smooth' });
+    const catInput = box.querySelector('input[name="category"]');
+    if (catInput && activeCategoryName) {
+      catInput.value = activeCategoryName;
+    }
+    const descInput = box.querySelector('input[name="description"]');
+    if (descInput) descInput.focus();
+  }
+}
+
+function toggleAddExpenseModal() {
+  const box = document.getElementById('addExpenseModal');
+  if (!box) return;
+  if (box.style.display === 'none' || box.style.display === '') {
+    box.style.display = 'block';
+    box.scrollIntoView({ behavior: 'smooth' });
+    const descInput = box.querySelector('input[name="description"]');
+    if (descInput) descInput.focus();
+  } else {
+    box.style.display = 'none';
+  }
+}
+
+// 6. Edit Expense Modal Handlers
+function openEditExpenseModal(id, date, desc, category, amount) {
+  const modal = document.getElementById('editExpenseModal');
+  const form = document.getElementById('editExpenseForm');
+  const dateInput = document.getElementById('editDateInput');
+  const amountInput = document.getElementById('editAmountInput');
+  const descInput = document.getElementById('editDescriptionInput');
+  const catSelect = document.getElementById('editCategorySelect');
+  const customContainer = document.getElementById('editCustomCategoryContainer');
+  const customInput = document.getElementById('editCustomCategoryInput');
+
+  if (!modal || !form) return;
+
+  form.action = `/expense/${id}/edit/`;
+  if (dateInput) dateInput.value = date;
+  if (amountInput) amountInput.value = amount;
+  if (descInput) descInput.value = desc;
+
+  if (catSelect) {
+    if (customContainer) customContainer.style.display = 'none';
+    if (customInput) {
+      customInput.value = '';
+      customInput.required = false;
+    }
+
+    let found = false;
+    const catVal = (category || '').trim();
+    for (let i = 0; i < catSelect.options.length; i++) {
+      if (catSelect.options[i].value.toLowerCase() === catVal.toLowerCase()) {
+        catSelect.selectedIndex = i;
+        found = true;
+        break;
+      }
+    }
+
+    if (!found && catVal) {
+      const newOpt = document.createElement('option');
+      newOpt.value = catVal;
+      newOpt.textContent = catVal;
+      const customOpt = catSelect.querySelector('option[value="__custom__"]');
+      if (customOpt) {
+        catSelect.insertBefore(newOpt, customOpt);
+      } else {
+        catSelect.appendChild(newOpt);
+      }
+      catSelect.value = catVal;
+    }
+  }
+
+  modal.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+  if (descInput) descInput.focus();
+}
+
+function handleEditCategoryChange(selectElem) {
+  const customContainer = document.getElementById('editCustomCategoryContainer');
+  const customInput = document.getElementById('editCustomCategoryInput');
+  if (selectElem.value === '__custom__') {
+    if (customContainer) customContainer.style.display = 'block';
+    if (customInput) {
+      customInput.required = true;
+      customInput.focus();
+    }
+  } else {
+    if (customContainer) customContainer.style.display = 'none';
+    if (customInput) {
+      customInput.required = false;
+      customInput.value = '';
+    }
+  }
+}
+
+function closeEditExpenseModal() {
+  const modal = document.getElementById('editExpenseModal');
+  if (modal) {
+    modal.style.display = 'none';
+    document.body.style.overflow = 'auto';
+  }
+}
+
+function handleEditModalBackdropClick(event) {
+  if (event.target && event.target.id === 'editExpenseModal') {
+    closeEditExpenseModal();
+  }
+}
+
+// 6a. Split Across Months Handlers
+function toggleSplitOptions(checkbox) {
+  const container = document.getElementById('splitOptionsContainer');
+  if (container) {
+    container.style.display = checkbox.checked ? 'block' : 'none';
+    if (checkbox.checked) {
+      updateSplitCalculationPreview();
+    }
+  }
+}
+
+function updateSplitCalculationPreview() {
+  const checkbox = document.getElementById('enableSplitCheckbox');
+  if (!checkbox || !checkbox.checked) return;
+
+  const amtInput = document.getElementById('addExpenseAmountInput') || document.querySelector('#addExpenseModal input[name="amount"]');
+  const dateInput = document.querySelector('#addExpenseModal input[name="date"]');
+  const monthsSelect = document.getElementById('splitMonthsSelect');
+  const badge = document.getElementById('splitPreviewBadge');
+  const listPreview = document.getElementById('splitMonthsListPreview');
+
+  const totalAmt = amtInput ? parseFloat(amtInput.value) : 0;
+  const splitMonths = monthsSelect ? parseInt(monthsSelect.value, 10) : 3;
+
+  if (!totalAmt || isNaN(totalAmt) || totalAmt <= 0) {
+    if (badge) badge.innerHTML = '<span style="color:#64748b;">Enter amount above to see split</span>';
+    if (listPreview) listPreview.style.display = 'none';
+    return;
+  }
+
+  const perMonth = (totalAmt / splitMonths).toFixed(2);
+  if (badge) {
+    badge.innerHTML = `<span>₹${parseFloat(perMonth).toLocaleString('en-IN', {minimumFractionDigits: 2})} / month</span> &nbsp;<span style="font-size:0.75rem; font-weight:500; color:#1d4ed8;">(${splitMonths} installments)</span>`;
+  }
+
+  let baseDate = new Date();
+  if (dateInput && dateInput.value) {
+    const parts = dateInput.value.split('-');
+    if (parts.length === 3) {
+      baseDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+    }
+  }
+
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  let itemsHtml = [];
+  let totalAllocated = 0;
+
+  for (let i = 0; i < splitMonths; i++) {
+    let d = new Date(baseDate.getFullYear(), baseDate.getMonth() + i, 1);
+    let mName = monthNames[d.getMonth()] + ' ' + d.getFullYear();
+    let amt;
+    if (i === splitMonths - 1) {
+      amt = (totalAmt - totalAllocated).toFixed(2);
+    } else {
+      amt = parseFloat(perMonth).toFixed(2);
+      totalAllocated += parseFloat(amt);
+    }
+    itemsHtml.push(`<strong>${mName}:</strong> ₹${parseFloat(amt).toLocaleString('en-IN', {minimumFractionDigits: 2})}`);
+  }
+
+  if (listPreview) {
+    listPreview.style.display = 'block';
+    listPreview.innerHTML = `📅 <strong>Monthly Distribution:</strong> ` + itemsHtml.join(' &bull; ');
+  }
+}
+
+// 6b. Add New Category Modal & Handlers
+function openAddCategoryModal() {
+  const modal = document.getElementById('addCategoryModal');
+  const input = document.getElementById('newCategoryInputName');
+  if (modal) {
+    modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+    if (input) {
+      input.value = '';
+      setTimeout(() => input.focus(), 80);
+    }
+  }
+}
+
+function closeAddCategoryModal() {
+  const modal = document.getElementById('addCategoryModal');
+  if (modal) {
+    modal.style.display = 'none';
+    document.body.style.overflow = 'auto';
+  }
+}
+
+function handleAddCategoryModalBackdropClick(event) {
+  if (event.target && event.target.id === 'addCategoryModal') {
+    closeAddCategoryModal();
+  }
+}
+
+function handleAddCategorySelectChange(selectElem) {
+  if (selectElem.value === '__custom__') {
+    openAddCategoryModal();
+  }
+}
+
+function submitNewCategory() {
+  const input = document.getElementById('newCategoryInputName');
+  if (!input) return;
+  const raw = input.value.trim();
+  if (!raw) {
+    alert('Please enter a category name.');
+    input.focus();
+    return;
+  }
+  const catName = raw.charAt(0).toUpperCase() + raw.slice(1);
+
+  // 1. Add to Add Expense select dropdown
+  const addSelect = document.getElementById('addExpenseCategorySelect');
+  if (addSelect) {
+    let exists = false;
+    for (let i = 0; i < addSelect.options.length; i++) {
+      if (addSelect.options[i].value.toLowerCase() === catName.toLowerCase()) {
+        addSelect.selectedIndex = i;
+        exists = true;
+        break;
+      }
+    }
+    if (!exists) {
+      const opt = document.createElement('option');
+      opt.value = catName;
+      opt.textContent = catName;
+      const customOpt = addSelect.querySelector('option[value="__custom__"]');
+      if (customOpt) {
+        addSelect.insertBefore(opt, customOpt);
+      } else {
+        addSelect.appendChild(opt);
+      }
+      opt.selected = true;
+    }
+  }
+
+  // 2. Add to Edit Expense select dropdown
+  const editSelect = document.getElementById('editCategorySelect');
+  if (editSelect) {
+    let exists = false;
+    for (let i = 0; i < editSelect.options.length; i++) {
+      if (editSelect.options[i].value.toLowerCase() === catName.toLowerCase()) {
+        exists = true;
+        break;
+      }
+    }
+    if (!exists) {
+      const opt = document.createElement('option');
+      opt.value = catName;
+      opt.textContent = catName;
+      const customOpt = editSelect.querySelector('option[value="__custom__"]');
+      if (customOpt) {
+        editSelect.insertBefore(opt, customOpt);
+      } else {
+        editSelect.appendChild(opt);
+      }
+    }
+  }
+
+  // 3. Add to Filter dropdown
+  const filterSelect = document.getElementById('historyFilterCategory');
+  if (filterSelect) {
+    let exists = false;
+    for (let i = 0; i < filterSelect.options.length; i++) {
+      if (filterSelect.options[i].value.toLowerCase() === catName.toLowerCase()) {
+        exists = true;
+        break;
+      }
+    }
+    if (!exists) {
+      const opt = document.createElement('option');
+      opt.value = catName;
+      opt.textContent = catName;
+      filterSelect.appendChild(opt);
+    }
+  }
+
+  // 4. Save to localStorage
+  try {
+    let saved = JSON.parse(localStorage.getItem('customCategories') || '[]');
+    if (!saved.some(c => c.toLowerCase() === catName.toLowerCase())) {
+      saved.push(catName);
+      localStorage.setItem('customCategories', JSON.stringify(saved));
+    }
+  } catch (e) {}
+
+  closeAddCategoryModal();
+
+  // If the add expense box is closed, open it so user can fill amount & description
+  const addModal = document.getElementById('addExpenseModal');
+  if (addModal && (addModal.style.display === 'none' || addModal.style.display === '')) {
+    toggleAddExpenseModal();
+  }
+}
+
+// Load custom categories from localStorage on page load
+function loadCustomCategories() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('customCategories') || '[]');
+    const addSelect = document.getElementById('addExpenseCategorySelect');
+    const editSelect = document.getElementById('editCategorySelect');
+    const filterSelect = document.getElementById('historyFilterCategory');
+
+    saved.forEach(catName => {
+      if (addSelect) {
+        const exists = Array.from(addSelect.options).some(o => o.value.toLowerCase() === catName.toLowerCase());
+        if (!exists) {
+          const opt = document.createElement('option');
+          opt.value = catName;
+          opt.textContent = catName;
+          const customOpt = addSelect.querySelector('option[value="__custom__"]');
+          if (customOpt) addSelect.insertBefore(opt, customOpt);
+          else addSelect.appendChild(opt);
+        }
+      }
+      if (editSelect) {
+        const exists = Array.from(editSelect.options).some(o => o.value.toLowerCase() === catName.toLowerCase());
+        if (!exists) {
+          const opt = document.createElement('option');
+          opt.value = catName;
+          opt.textContent = catName;
+          const customOpt = editSelect.querySelector('option[value="__custom__"]');
+          if (customOpt) editSelect.insertBefore(opt, customOpt);
+          else editSelect.appendChild(opt);
+        }
+      }
+      if (filterSelect) {
+        const exists = Array.from(filterSelect.options).some(o => o.value.toLowerCase() === catName.toLowerCase());
+        if (!exists) {
+          const opt = document.createElement('option');
+          opt.value = catName;
+          opt.textContent = catName;
+          filterSelect.appendChild(opt);
+        }
+      }
+    });
+  } catch (e) {}
+}
+
+function exportPersonalPdf() {
+  const params = new URLSearchParams();
+  params.set('month', '{{ selected_month }}');
+  params.set('year', '{{ selected_year }}');
+  const d = document.getElementById('historyFilterDate');
+  const c = document.getElementById('historyFilterCategory');
+  const minEl = document.getElementById('historyFilterMinAmount');
+  const maxEl = document.getElementById('historyFilterMaxAmount');
+  if (d && d.value.trim()) params.set('date', d.value.trim());
+  if (c && c.value && c.value.toLowerCase() !== 'all') params.set('category', c.value);
+  if (minEl && minEl.value.trim()) params.set('min_amount', minEl.value.trim());
+  if (maxEl && maxEl.value.trim()) params.set('max_amount', maxEl.value.trim());
+  window.location.href = "{% url 'export_personal_pdf' %}?" + params.toString();
+}
+
+function exportPersonalCategoryPdf() {
+  const params = new URLSearchParams();
+  params.set('month', '{{ selected_month }}');
+  params.set('year', '{{ selected_year }}');
+  if (activeCategoryName) params.set('category', activeCategoryName);
+  window.location.href = "{% url 'export_personal_pdf' %}?" + params.toString();
+}
+
+// 7. Initialization & Event Listeners
+document.addEventListener('DOMContentLoaded', function () {
+  loadCustomCategories();
+  if (typeof RupeePaginator !== 'undefined') {
+    RupeePaginator.register({
+      key: 'personal',
+      tbodyId: 'mainExpensesTableBody',
+      rowSelector: 'tr.expense-row',
+      controlsId: 'personalHistoryPagination',
+      pageSize: 10
+    });
+  }
+  const catSelect = document.getElementById('historyFilterCategory');
+  if (catSelect && activeCategoryName) {
+    catSelect.value = activeCategoryName;
+  }
+
+  // Keydown Enter listener on filter inputs
+  ['historyFilterDate', 'historyFilterMinAmount', 'historyFilterMaxAmount'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          applyHistoryFilters();
+        }
+      });
+    }
+  });
+
+  // Initial check for clear button visibility and active filters
+  updateClearButtonsVisibility();
+  applyHistoryFilters();
+
+  const addDateInput = document.querySelector('#addExpenseModal input[name="date"]');
+  if (addDateInput) {
+    addDateInput.addEventListener('change', updateSplitCalculationPreview);
+  }
+});
+</script>
+{% endblock %}
+
+
+<script>
+
+document.addEventListener('DOMContentLoaded', function () {
+  const addForm = document.querySelector('#addExpenseModal form');
+  if (addForm) {
+    addForm.addEventListener('submit', function (e) {
+      const catSelect = document.getElementById('addExpenseCategorySelect');
+      if (catSelect && (!catSelect.value || catSelect.value === '__custom__')) {
+        e.preventDefault();
+        openAddCategoryModal();
+        return false;
+      }
+    });
+  }
+
+  const editForm = document.getElementById('editExpenseForm');
+  if (editForm) {
+    editForm.addEventListener('submit', function (e) {
+      const catSelect = document.getElementById('editCategorySelect');
+      const customInput = document.getElementById('editCustomCategoryInput');
+      if (catSelect && catSelect.value === '__custom__') {
+        const customVal = customInput ? customInput.value.trim() : '';
+        if (!customVal) {
+          e.preventDefault();
+          if (customInput) customInput.focus();
+          return false;
+        }
+        let opt = document.createElement('option');
+        opt.value = customVal;
+        opt.textContent = customVal;
+        opt.selected = true;
+        catSelect.appendChild(opt);
+        catSelect.value = customVal;
+      }
+    });
+  }
+});
+
+</script>

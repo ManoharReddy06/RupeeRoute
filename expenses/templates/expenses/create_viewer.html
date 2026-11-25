@@ -1,0 +1,164 @@
+{% extends "expenses/base.html" %}
+
+{% block title %}Create Viewer - RupeeRoute{% endblock %}
+
+{% block content %}
+<div class="tracker-container" style="max-width: 900px; margin: 0 auto;">
+
+  <!-- Page Header -->
+  <div style="display: flex; align-items: center; gap: 0.85rem; margin-bottom: 1rem;">
+    <div style="width: 44px; height: 44px; border-radius: var(--radius-md); background: #e0e7ff; color: var(--accent-primary); display: flex; align-items: center; justify-content: center; font-size: 1.5rem; flex-shrink: 0;">
+      👁️
+    </div>
+    <div>
+      <h2 style="font-size: 1.45rem; font-weight: 800; color: var(--text-primary); margin: 0; letter-spacing: -0.01em;">
+        Create Viewer Profile
+      </h2>
+      <p style="color: var(--text-secondary); font-size: 0.85rem; margin: 0.15rem 0 0 0;">
+        Share read-only access with your family or friends to track your expenses safely.
+      </p>
+    </div>
+  </div>
+
+  <!-- Note Card -->
+  <div class="viewer-note-box" style="margin-bottom: 1.75rem;">
+    <div class="viewer-note-badge">
+      <span class="note-pin">📌</span>
+      <span class="note-title">NOTE:</span>
+    </div>
+    <div class="viewer-note-body">
+      Viewers receive secure, <strong>read-only login credentials</strong>. When logged in, they can view your complete dashboard, monthly & yearly metrics, and expense history, but they <strong>cannot add, edit, or delete</strong> any expenses.
+    </div>
+  </div>
+
+  <!-- Create Viewer Form Card -->
+  <div class="section-card" style="margin-bottom: 2rem;">
+    <div class="section-header">
+      <div class="section-title">
+        <span>➕</span>
+        <span>Add New Viewer Account</span>
+      </div>
+    </div>
+
+    <div class="section-body" style="padding-top: 1.25rem;">
+      <form method="post" id="createViewerForm">
+        {% csrf_token %}
+
+        {% if form.non_field_errors %}
+        <div class="flash-item error" style="margin-bottom: 1rem;">
+          {{ form.non_field_errors }}
+        </div>
+        {% endif %}
+
+        <div class="form-grid" style="margin-bottom: 1rem;">
+          <div class="form-group">
+            <label class="form-label">Full Name / Relationship (Optional)</label>
+            {{ form.full_name }}
+            <small style="color: var(--text-muted); font-size: 0.75rem;">e.g. Dad, Brother, Friend, Roommate</small>
+            {% if form.full_name.errors %}
+            <div class="form-error" style="color: var(--danger); font-size: 0.8rem; margin-top: 0.25rem;">{{ form.full_name.errors.0 }}</div>
+            {% endif %}
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Viewer Username or Email *</label>
+            {{ form.username }}
+            <small style="color: var(--text-muted); font-size: 0.75rem;">Username or email they will use to log in</small>
+            {% if form.username.errors %}
+            <div class="form-error" style="color: var(--danger); font-size: 0.8rem; margin-top: 0.25rem;">{{ form.username.errors.0 }}</div>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="form-grid" style="margin-bottom: 1.25rem;">
+          <div class="form-group">
+            <label class="form-label">Viewer Password *</label>
+            {{ form.password }}
+            {% if form.password.errors %}
+            <div class="form-error" style="color: var(--danger); font-size: 0.8rem; margin-top: 0.25rem;">{{ form.password.errors.0 }}</div>
+            {% endif %}
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Confirm Password *</label>
+            {{ form.confirm_password }}
+            {% if form.confirm_password.errors %}
+            <div class="form-error" style="color: var(--danger); font-size: 0.8rem; margin-top: 0.25rem;">{{ form.confirm_password.errors.0 }}</div>
+            {% endif %}
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end;">
+          <button type="submit" class="btn btn-primary" style="padding: 0.7rem 1.75rem; font-weight: 700;">
+            ➕ Create Viewer &rarr;
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Existing Viewers List Card -->
+  <div class="section-card">
+    <div class="section-header">
+      <div class="section-title">
+        <span>👥</span>
+        <span>Existing Viewers ({{ viewers|length }})</span>
+      </div>
+      <span class="badge-pill" style="background: #eef2ff; color: var(--accent-primary); font-weight: 600;">
+        Read-Only Viewers
+      </span>
+    </div>
+
+    <div class="section-body">
+      {% if viewers %}
+      <div class="table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Username</th>
+              <th>Name / Label</th>
+              <th>Created Date</th>
+              <th>Permissions</th>
+              <th style="text-align: right;">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for v in viewers %}
+            <tr>
+              <td style="font-weight: 700; color: var(--text-primary);">
+                👤 {{ v.username }}
+              </td>
+              <td>{{ v.profile.full_name|default:"-" }}</td>
+              <td style="color: var(--text-secondary);">
+                {{ v.date_joined|date:"d M Y" }}
+              </td>
+              <td>
+                <span class="status-pill status-active" style="background: #e0f2fe; color: #0369a1; padding: 0.25rem 0.6rem; border-radius: var(--radius-full); font-size: 0.78rem; font-weight: 700;">
+                  👀 Read Only
+                </span>
+              </td>
+              <td style="text-align: right;">
+                <form method="post" action="{% url 'delete_viewer' viewer_id=v.id %}" style="display: inline;" onsubmit="return confirm('Are you sure you want to revoke and delete viewer access for {{ v.username }}?');">
+                  {% csrf_token %}
+                  <button type="submit" class="btn btn-danger btn-sm" style="padding: 0.35rem 0.75rem; font-size: 0.8rem;">
+                    Revoke Access
+                  </button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div style="text-align: center; padding: 2.5rem 1rem; color: var(--text-muted);">
+        <div style="font-size: 2.5rem; margin-bottom: 0.75rem;">👥</div>
+        <p style="font-size: 1rem; font-weight: 600; color: var(--text-secondary);">No viewers created yet</p>
+        <p style="font-size: 0.85rem;">Use the form above to generate read-only access for your family or friends.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}

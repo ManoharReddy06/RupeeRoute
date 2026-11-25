@@ -1,0 +1,2906 @@
+{% extends "expenses/base.html" %}
+
+{% block title %}Sharing Hub - RupeeRoute{% endblock %}
+
+{% block content %}
+<div class="sharing-hub">
+
+  <!-- =========================================================================
+       Top Note Banner (Permanently Visible)
+       ========================================================================= -->
+  <div class="sharing-hub__note" id="sharingHubNote">
+    <span class="sharing-hub__note-badge">📌 NOTE</span>
+    <div class="sharing-hub__note-body">
+      Collaborate and track shared expenses with your roommates or travel companions. Choose <strong>Room
+        Sharing</strong> or <strong>Trip Sharing</strong> to view groups, enter a passkey, or create a new group.
+    </div>
+  </div>
+
+
+  <!-- =========================================================================
+       SCREEN 1: LANDING VIEW (Centered Two Action Buttons ONLY)
+       ========================================================================= -->
+  <div class="sharing-hub__landing" id="sharingLandingView">
+    <div class="sharing-hub__landing-actions">
+      <!-- Button 1: Room Sharing -->
+      <button type="button" class="sharing-card-btn sharing-card-btn--room" id="btnSelectRoom"
+        onclick="openSharingPane('room');" title="Open Room Sharing">
+        <div class="sharing-card-btn__icon">🏠</div>
+        <h2 class="sharing-card-btn__title">Room Sharing</h2>
+        <p class="sharing-card-btn__subtitle">
+          Track and split rent, utilities, and daily room expenses with your flatmates
+        </p>
+        {% if has_room_group %}
+        <span class="sharing-card-btn__badge">
+          ✓ Active Group: {{ room_group.name }}
+        </span>
+        {% endif %}
+        <div class="sharing-card-btn__cta">
+          <span>Open Room Sharing</span>
+          <span>&rarr;</span>
+        </div>
+      </button>
+
+      <!-- Button 2: Trip Sharing -->
+      <button type="button" class="sharing-card-btn sharing-card-btn--trip" id="btnSelectTrip"
+        onclick="openSharingPane('trip');" title="Open Trip Sharing">
+        <div class="sharing-card-btn__icon">✈️</div>
+        <h2 class="sharing-card-btn__title">Trip Sharing</h2>
+        <p class="sharing-card-btn__subtitle">
+          Manage vacation stays, flight bookings, meals, and split group trip costs
+        </p>
+        {% if has_trip_group %}
+        <span class="sharing-card-btn__badge" style="color: #0f766e; background: #ccfbf1;">
+          ✓ Active Group: {{ trip_group.name }}
+        </span>
+        {% endif %}
+        <div class="sharing-card-btn__cta">
+          <span>Open Trip Sharing</span>
+          <span>&rarr;</span>
+        </div>
+      </button>
+    </div>
+  </div>
+
+
+  <!-- =========================================================================
+       SCREEN 2: ROOM SHARING INTERNAL PANE
+       ========================================================================= -->
+  <div class="sharing-pane" id="roomSharingPane" style="display: none;">
+    <!-- Top Back Navigation -->
+    <div class="sharing-pane__nav">
+      <button type="button" class="sharing-pane__back-btn" onclick="backToLanding();">
+        &larr; Back to Sharing Hub
+      </button>
+      <span class="badge-pill">🏠 Room Sharing</span>
+    </div>
+
+    {% if is_viewer %}
+    <div class="alert alert-info" style="margin-bottom: 1.25rem; display: flex; align-items: center; gap: 0.75rem;">
+      <span style="font-size: 1.35rem;">👀</span>
+      <div>
+        <strong>Viewer Mode (Read-Only)</strong>: You are viewing <strong>{{ profile.full_name|default:profile.user.username }}</strong>'s room sharing group and bills. All actions, modifications, and settlements are disabled.
+      </div>
+    </div>
+    {% endif %}
+
+    {% if has_room_group %}
+    <!-- Room Passkey Banner Header (Visible after joining / creating) -->
+    <div class="sharing-banner">
+      <div class="sharing-banner__info">
+        <span class="sharing-banner__icon">🏠</span>
+        <div>
+          <h3 class="sharing-banner__title">{{ room_group.name }}</h3>
+          <span class="sharing-banner__badge">
+            👥 {{ room_group.current_members_count }} of {{ room_group.total_members }} Members Joined
+          </span>
+        </div>
+      </div>
+
+      <div class="sharing-banner__controls">
+        <div class="sharing-banner__passkey-box">
+          <span class="sharing-banner__passkey-label">Passkey:</span>
+          <span class="sharing-banner__passkey-val" id="roomPasskeyValue">{{ room_group.passkey }}</span>
+          <button type="button" class="sharing-banner__copy-btn"
+            onclick="copyPasskey('{{ room_group.passkey }}', this);">
+            📋 Copy
+          </button>
+        </div>
+
+        {% if not is_viewer %}
+        <!-- Leave / Dissolve Room Form -->
+        <form method="post" action="{% url 'leave_sharing_group' room_group.id %}"
+          onsubmit="return confirm('Are you sure you want to {% if room_group.is_creator %}dissolve this room group{% else %}leave this room group{% endif %}?');">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-secondary btn-sm"
+            style="background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.35);">
+            {% if room_group.is_creator %}Dissolve Room{% else %}Leave Room{% endif %}
+          </button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Month and Year Selection Filter (Matching Personal Tracker) -->
+    <div class="filter-bar" style="margin-top: 1.25rem; margin-bottom: 1.5rem;">
+      <form method="get" id="roomMonthYearForm" class="filter-form">
+        <input type="hidden" name="mode" value="room">
+        <div class="filter-label">
+          <span>📅 Select Month & Year:</span>
+        </div>
+
+        <div class="filter-controls">
+          <select name="month" class="form-select" onchange="document.getElementById('roomMonthYearForm').submit();">
+            {% for num, name in months_list %}
+            <option value="{{ num }}" {% if num == selected_month %}selected{% endif %}>
+              {{ name }}
+            </option>
+            {% endfor %}
+          </select>
+
+          <select name="year" class="form-select" onchange="document.getElementById('roomMonthYearForm').submit();">
+            {% for y in years_list %}
+            <option value="{{ y }}" {% if y == selected_year %}selected{% endif %}>
+              {{ y }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="filter-active-indicator">
+          Showing: <strong>{{ month_name }} {{ selected_year }}</strong>
+        </div>
+      </form>
+    </div>
+
+
+    <!-- Member Profile Cards Grid (Side-by-side 3 people) -->
+    <div class="sharing-members-grid">
+      <!-- 1. Joined Members Cards (Logged-in User is #1, followed by roommates) -->
+      {% for member in room_group.members %}
+      <div class="profile-card sharing-member-card">
+        <!-- Top: Avatar -->
+        <div class="sharing-member-card__avatar-wrap">
+          <div class="profile-avatar-wrapper">
+            {% if member.avatar %}
+            <img src="{{ member.avatar.url }}" alt="{{ member.display_name }}" class="profile-photo">
+            {% else %}
+            <div class="profile-avatar-initials">{{ member.initials }}</div>
+            {% endif %}
+          </div>
+        </div>
+
+        <!-- Middle: Name Details -->
+        <div class="sharing-member-card__user-meta">
+          <h2 class="profile-name">{{ member.display_name }}</h2>
+          <div class="profile-age">
+            Member Slot #{{ member.slot_number }}
+            {% if member.age %} &bull; Age: {{ member.age }} yrs{% endif %}
+          </div>
+          <div class="sharing-member-card__badges">
+            {% if member.is_current_user %}
+            <span class="profile-badge">You</span>
+            {% else %}
+            <span class="profile-badge" style="background: #e0f2fe; color: #0369a1;">Roommate</span>
+            {% endif %}
+            {% if member.is_creator %}
+            <span class="profile-badge" style="background: #fef3c7; color: #92400e;">Creator</span>
+            {% endif %}
+          </div>
+        </div>
+
+        <!-- Bottom: Monthly Expense, Fair Share, and Net Balance Badge -->
+        <div class="sharing-member-card__metrics">
+          <div class="metric-card active-metric-card sharing-member-card__metric"
+               onclick="openMemberSplitBreakdownModal('room', {{ member.user.id }}, '{{ member.display_name|escapejs }}');"
+               title="Click to view detailed split breakdown for {{ member.display_name }}">
+            <div class="metric-card-header">
+              <span class="metric-icon">💳</span>
+              <span class="metric-label">{% if room_group.has_shared_bills %}Total Spent / Paid{% else %}Monthly Spent ({{ month_name }} {{ current_year }}){% endif %}</span>
+            </div>
+            <div class="metric-amount">
+              ₹{{ member.monthly_spent|floatformat:2 }}
+            </div>
+            <div class="metric-subtext">
+              {% if room_group.has_shared_bills %}Amount paid by {{ member.display_name }}{% else %}Current month spending{% endif %}
+            </div>
+            <span class="metric-click-hint">🔍 View Split Breakdown &rarr;</span>
+          </div>
+
+          <div class="metric-card sharing-member-card__metric"
+               onclick="openMemberSplitBreakdownModal('room', {{ member.user.id }}, '{{ member.display_name|escapejs }}');"
+               title="Click to view detailed split breakdown for {{ member.display_name }}">
+            <div class="metric-card-header">
+              <span class="metric-icon">⚖️</span>
+              <span class="metric-label">{% if room_group.has_shared_bills %}Fair Share / Average{% else %}Monthly Average{% endif %}</span>
+            </div>
+            <div class="metric-amount">
+              ₹{{ member.monthly_average|floatformat:2 }}
+            </div>
+            <div class="metric-subtext">
+              {% if room_group.has_shared_bills %}Expected share of group bills{% else %}Average monthly spend{% endif %}
+            </div>
+            <span class="metric-click-hint">🔍 View Split Breakdown &rarr;</span>
+          </div>
+
+          <!-- Net Balance Badge -->
+          {% if member.balance_status == 'extra' %}
+          <div class="sharing-balance-badge sharing-balance-badge--extra" title="Paid more than fair share">
+            <span>▲</span>
+            <span>{{ member.balance_label }}</span>
+          </div>
+          {% elif member.balance_status == 'short' %}
+          <div class="sharing-balance-badge sharing-balance-badge--short" title="Owes share to roommates">
+            <span>▼</span>
+            <span>{{ member.balance_label }}</span>
+          </div>
+          {% else %}
+          <div class="sharing-balance-badge sharing-balance-badge--settled">
+            <span>✓</span>
+            <span>{{ member.balance_label }}</span>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+
+      <!-- 2. Empty Waiting Slots Cards -->
+      {% for empty_slot in room_group.empty_slots %}
+      <div class="sharing-empty-card">
+        <div class="sharing-empty-card__avatar-wrap">
+          <div class="sharing-empty-card__avatar">⏳</div>
+        </div>
+
+        <div class="sharing-empty-card__meta">
+          <div class="sharing-empty-card__title">
+            Roommate Slot #{{ empty_slot.slot_number }} (Waiting to Join)
+          </div>
+          <div style="margin: 0.35rem 0;">
+            <span class="profile-badge" style="background: #f1f5f9; color: #64748b;">Waiting to Join</span>
+          </div>
+          <div class="sharing-empty-card__subtext">
+            Share passkey <strong>{{ room_group.passkey }}</strong> with your roommate. When they log in and enter this
+            passkey, their card will automatically appear here.
+          </div>
+        </div>
+
+        <div class="sharing-empty-card__action">
+          <button type="button" class="btn btn-secondary btn-sm"
+            onclick="copyPasskey('{{ room_group.passkey }}', this);"
+            style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.4rem; padding: 0.65rem;">
+            <span>📋</span>
+            <span>Copy Passkey</span>
+          </button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- Category Breakdown Section -->
+    <div class="section-card" id="roomCategoriesSection" style="margin-top: 1.5rem; width: 100%;">
+      <div class="section-header">
+        <div class="section-title">
+          <span>📊</span>
+          <span>Room Expense Breakdown ({{ room_group.name }})</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+          <span class="badge-pill">{{ room_group.category_breakdown|length }} Categories Active</span>
+          {% if not is_viewer %}
+          <button type="button" class="btn btn-secondary btn-sm" onclick="openAddSharedCategoryModal('room');" style="display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600;">
+            <span>➕</span>
+            <span>Add Category</span>
+          </button>
+          <button type="button" class="btn btn-primary btn-sm" onclick="openAddSharedExpenseModal('room');" style="display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700;">
+            <span>➕</span>
+            <span>Enter New Bill</span>
+          </button>
+          {% endif %}
+          <small style="color: var(--text-muted); font-size: 0.78rem;">(Click category card to view detailed bills)</small>
+        </div>
+      </div>
+
+      <div class="section-body">
+        {% if room_group.category_breakdown %}
+        <div class="breakdown-grid">
+          {% for cat in room_group.category_breakdown %}
+          <div class="breakdown-card category-clickable-card room-cat-card"
+               onclick="openSharedCategoryModal('room', '{{ cat.name|escapejs }}');"
+               data-category="{{ cat.name }}"
+               title="Click to view all {{ cat.name }} bills in detail">
+            <div class="breakdown-card-top">
+              <span class="category-tag">
+                <span class="category-icon">{{ cat.icon }}</span>
+                {{ cat.name }}
+              </span>
+              <span class="breakdown-amount">₹{{ cat.amount|floatformat:2 }}</span>
+            </div>
+
+            <!-- Percentage Progress Bar -->
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill" style="width: {{ cat.percentage }}%;"></div>
+            </div>
+
+            <div class="breakdown-card-bottom">
+              <span>{{ cat.count }} bill{{ cat.count|pluralize }}</span>
+              <span class="percentage-text">{{ cat.percentage }}% of room spend</span>
+            </div>
+
+            <div class="card-click-hint">
+              <span>📂 View {{ cat.name }} bills &rarr;</span>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">
+          <div class="empty-icon">📂</div>
+          <p>No shared bills recorded in <strong>{{ room_group.name }}</strong> yet.</p>
+          {% if not is_viewer %}
+          <span class="empty-hint">Click <strong>"Enter New Bill"</strong> to record the first room expense!</span>
+          {% endif %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Shared Bills History Section -->
+    <div class="section-card" id="roomHistorySection" style="margin-top: 1.5rem; width: 100%;">
+      <div class="section-header">
+        <div class="section-title">
+          <span>📝</span>
+          <span>Shared Bills History ({{ room_group.expenses_count }} Entries)</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+          <span class="badge-pill" style="background: #eef2ff; color: #4338ca; border-color: #c7d2fe; font-weight: 800;">
+            Total Spend: ₹{{ room_group.total_spent|floatformat:2 }}
+          </span>
+          <button type="button" class="btn-export-pdf" onclick="exportSharingPdf('room');" title="Export filtered Room bills to PDF">
+            📄 Export PDF
+          </button>
+          {% if not is_viewer %}
+          <button type="button" class="btn btn-primary" onclick="openAddSharedExpenseModal('room');">
+            ➕ Enter New Bill
+          </button>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Filters Toolbar (Paid By, Split With, Category & Reset) -->
+      <div class="sharing-filters-toolbar">
+        <div class="sharing-filters-toolbar__top">
+          <div class="sharing-filters-toolbar__title">
+            <span>🔍</span>
+            <span>Filter Shared Bills</span>
+            <small style="color: var(--text-muted); font-weight: 500;">(Filter by who paid, split with whom, or category)</small>
+          </div>
+          <div>
+            <span id="roomFilterLiveBadge" class="filter-count-badge" style="display: none;"></span>
+          </div>
+        </div>
+
+        <div class="sharing-filters-toolbar__grid">
+          <!-- 1. Paid By Filter -->
+          <div class="sharing-filters-toolbar__item">
+            <label class="sharing-filters-toolbar__label" for="roomFilterPaidBy">
+              💳 Paid By
+            </label>
+            <select id="roomFilterPaidBy" class="sharing-filters-toolbar__select" onchange="applySharedBillsFilters('room');">
+              <option value="all">All Roommates</option>
+              {% for m in room_group.members %}
+              <option value="{{ m.user.id }}">{{ m.display_name }}{% if m.is_current_user %} (You){% endif %}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <!-- 2. Split With Filter -->
+          <div class="sharing-filters-toolbar__item">
+            <label class="sharing-filters-toolbar__label" for="roomFilterSplitWith">
+              👥 Split With
+            </label>
+            <select id="roomFilterSplitWith" class="sharing-filters-toolbar__select" onchange="applySharedBillsFilters('room');">
+              <option value="all">All Splits</option>
+              <option value="all_members">All Members Together</option>
+              {% for m in room_group.members %}
+              <option value="{{ m.user.id }}">Includes {{ m.display_name }}{% if m.is_current_user %} (You){% endif %}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <!-- 3. Category Filter -->
+          <div class="sharing-filters-toolbar__item">
+            <label class="sharing-filters-toolbar__label" for="roomFilterCategorySelect">
+              🏷️ Category
+            </label>
+            <select id="roomFilterCategorySelect" class="sharing-filters-toolbar__select" onchange="applySharedBillsFilters('room');">
+              <option value="all">All Categories</option>
+              {% for cat in room_group.category_breakdown %}
+              <option value="{{ cat.name }}">{{ cat.name }} ({{ cat.count }})</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <!-- 4. Reset Button -->
+          <div class="sharing-filters-toolbar__item" style="justify-content: flex-end;">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="resetSharedBillsFilters('room');" style="height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;">
+              ✕ Reset Filters
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Active Category Filter Banner -->
+      <div id="roomCategoryFilterBanner" class="category-filter-banner" style="display: none;">
+        <div class="filter-banner-text">
+          <span>🏷️ Filtered by Category:</span>
+          <strong id="roomFilterCategoryName" class="filter-pill-active"></strong>
+          <span id="roomFilterCount" class="filter-count-text"></span>
+        </div>
+        <button type="button" class="btn-clear-filter" onclick="clearSharedBillsCategoryFilter('room');">
+          ✕ Show All Categories
+        </button>
+      </div>
+
+      <!-- Shared Bills Table -->
+      <div class="table-responsive">
+        <table class="data-table" id="roomBillsTable">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Purpose / Description</th>
+              <th>Category</th>
+              <th style="text-align: right;">Total Bill (₹)</th>
+              <th>Paid By</th>
+              <th>Split With</th>
+              <th style="text-align: right;">Share / Person (₹)</th>
+              {% if not is_viewer %}<th style="text-align: right;">Action</th>{% endif %}
+            </tr>
+          </thead>
+          <tbody id="roomBillsTableBody">
+            {% for exp in room_group.expenses_history %}
+            <tr class="expense-row room-expense-row"
+                data-category="{{ exp.category|lower }}"
+                data-paid-by="{{ exp.paid_by_id }}"
+                data-split-ids="{{ exp.split_ids_json }}"
+                data-split-count="{{ exp.split_count }}"
+                id="room-exp-{{ exp.id }}">
+              <td style="white-space: nowrap; color: var(--text-muted); font-size: 0.85rem;">
+                {{ exp.date|date:"d/m/Y" }}
+              </td>
+              <td class="col-primary">
+                {{ exp.description }}
+              </td>
+              <td>
+                <span class="category-pill clickable-pill" onclick="openSharedCategoryModal('room', '{{ exp.category|escapejs }}');" title="View {{ exp.category }} details">
+                  {{ exp.category_icon }} {{ exp.category }}
+                </span>
+              </td>
+              <td class="col-amount">
+                ₹{{ exp.amount|floatformat:2 }}
+              </td>
+              <td>
+                <div class="sharing-history-payer">
+                  {% if exp.paid_by_avatar %}
+                  <img src="{{ exp.paid_by_avatar }}" class="sharing-history-avatar" alt="{{ exp.paid_by_name }}">
+                  {% else %}
+                  <div class="sharing-history-avatar">{{ exp.paid_by_initials }}</div>
+                  {% endif %}
+                  <span>
+                    {{ exp.paid_by_name }}
+                    {% if exp.is_paid_by_current_user %}<strong style="color: var(--accent-primary); font-size: 0.78rem;">(You)</strong>{% endif %}
+                  </span>
+                </div>
+              </td>
+              <td>
+                <span class="sharing-split-tag" title="{{ exp.split_desc }}">
+                  👥 {{ exp.split_desc }}
+                </span>
+              </td>
+              <td style="text-align: right; font-weight: 700; color: #4338ca;">
+                ₹{{ exp.per_head|floatformat:2 }}
+              </td>
+              {% if not is_viewer %}
+              <td style="text-align: right; white-space: nowrap;">
+                {% if exp.can_edit %}
+                <button type="button"
+                        class="btn-edit"
+                        title="Edit this shared bill"
+                        style="margin-right: 0.35rem;"
+                        onclick="openEditSharedExpenseModal('room', {{ exp.id }}, '{{ exp.date|date:'Y-m-d' }}', '{{ exp.amount }}', '{{ exp.description|escapejs }}', '{{ exp.category|escapejs }}', {{ exp.paid_by_id }}, {{ exp.split_ids_json|safe }});">
+                  ✏️
+                </button>
+                {% endif %}
+                {% if exp.can_delete %}
+                <form method="post" action="{% url 'delete_shared_expense' exp.id %}" style="display: inline;" onsubmit="return confirm('Delete shared bill \'₹{{ exp.amount }} - {{ exp.description }}\'?');">
+                  {% csrf_token %}
+                  <button type="submit" class="btn-delete" title="Delete bill">🗑️</button>
+                </form>
+                {% endif %}
+              </td>
+              {% endif %}
+            </tr>
+            {% empty %}
+            <tr id="roomEmptyRow">
+              <td colspan="{% if is_viewer %}7{% else %}8{% endif %}" class="table-empty-row">
+                No shared bills recorded in {{ room_group.name }} yet.{% if not is_viewer %} Click <strong>"Enter New Bill"</strong> to add the first one!{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+            <!-- Filter No Match Row -->
+            <tr id="roomFilterNoMatchRow" style="display: none;">
+              <td colspan="{% if is_viewer %}7{% else %}8{% endif %}" class="table-empty-row" style="background: #fafbfc; padding: 2rem !important;">
+                <div style="font-size: 1.6rem; margin-bottom: 0.35rem;">🔍</div>
+                <strong style="color: var(--text-primary); font-size: 0.95rem;">No shared bills match your selected filters.</strong>
+                <div style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem;">
+                  Try adjusting the Paid By, Split With, or Category filter.
+                </div>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="resetSharedBillsFilters('room');" style="margin-top: 0.75rem;">
+                  ✕ Reset All Filters
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div id="roomHistoryPagination" class="pagination-bar" style="display: none;"></div>
+    </div>
+
+    <!-- Enter New Bill Modal for Room Sharing -->
+    {% if not is_viewer %}
+    <div id="roomAddBillModal" class="modal-backdrop" style="display: none;" onclick="closeOnBackdropClick(event, 'roomAddBillModal');">
+      <div class="modal-card" style="max-width: 640px;" onclick="event.stopPropagation();">
+        <div class="modal-header">
+          <div>
+            <div class="modal-eyebrow">Room Sharing &bull; {{ room_group.name }}</div>
+            <h3 class="modal-title">➕ Enter New Shared Bill</h3>
+          </div>
+          <button type="button" class="modal-close-btn" onclick="closeAddSharedExpenseModal('room');">&times;</button>
+        </div>
+
+        <form method="post" action="{% url 'add_shared_expense' %}" id="roomAddExpenseForm" style="padding: 1.5rem;">
+          {% csrf_token %}
+          <input type="hidden" name="group_id" value="{{ room_group.id }}">
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label">Date *</label>
+              <input type="date" name="date" class="form-input" value="{{ today|date:'Y-m-d' }}" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Total Bill Amount (₹ INR) *</label>
+              <div style="position: relative;">
+                <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-weight: 700; color: var(--text-muted);">₹</span>
+                <input type="number" id="roomBillAmount" name="amount" step="0.01" min="0.01" class="form-input" style="padding-left: 28px; font-weight: 700;" placeholder="0.00" oninput="updateRoomSplitPreview();" required>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label">Purpose / Description *</label>
+              <input type="text" name="description" class="form-input" placeholder="e.g. KFC, Rent, Groceries, Curd, Rice, Rapido, DSL Mall Dmart" required>
+            </div>
+            <div class="form-group">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                <label class="form-label" style="margin-bottom: 0;">Category *</label>
+                <button type="button" onclick="openAddSharedCategoryModal('room');" style="font-size: 0.78rem; color: var(--accent-primary); font-weight: 600; cursor: pointer; background: none; border: none; padding: 0;">
+                  ➕ Add New Category
+                </button>
+              </div>
+              <select name="category" id="roomAddExpenseCategorySelect" class="styled-category-select" onchange="handleSharedCategorySelectChange('room', this);" required>
+                {% for cat in room_group.available_categories %}
+                <option value="{{ cat }}">{{ cat }}</option>
+                {% endfor %}
+                <option value="__custom__" style="color: var(--accent-primary); font-weight: 700;">➕ + Add New Category...</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 1.25rem;">
+            <label class="form-label">Paid By (Who paid this bill?) *</label>
+            <select name="paid_by" class="styled-category-select">
+              {% for m in room_group.members %}
+              <option value="{{ m.user.id }}" {% if m.is_current_user %}selected{% endif %}>
+                {{ m.display_name }} {% if m.is_current_user %}(You){% endif %}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <!-- Split Members Checkboxes & Live Calculation -->
+          <div class="sharing-split-selector">
+            <div class="sharing-split-selector__header">
+              <span class="sharing-split-selector__label">👥 Split Between (Select who shares this bill):</span>
+              <div class="sharing-split-selector__actions">
+                <button type="button" class="sharing-split-selector__quick-btn" onclick="selectAllSplitMembers('room');">Select All</button>
+                <button type="button" class="sharing-split-selector__quick-btn" onclick="selectOnlyMeSplit('room', '{{ request.user.id }}');">Only Me</button>
+              </div>
+            </div>
+
+            <div class="sharing-split-selector__grid" id="roomSplitMembersGrid">
+              {% for m in room_group.members %}
+              <label class="sharing-split-selector__item">
+                <input type="checkbox" name="split_members" value="{{ m.user.id }}" class="sharing-split-selector__checkbox room-split-checkbox" checked onchange="updateRoomSplitPreview();">
+                {% if m.avatar %}
+                <img src="{{ m.avatar.url }}" class="sharing-split-selector__avatar" alt="{{ m.display_name }}">
+                {% else %}
+                <div class="sharing-split-selector__avatar">{{ m.initials }}</div>
+                {% endif %}
+                <span>{{ m.display_name }}{% if m.is_current_user %} (You){% endif %}</span>
+              </label>
+              {% endfor %}
+            </div>
+
+            <div class="sharing-split-selector__preview" id="roomSplitPreview">
+              <span>✨ Split Between: <strong id="roomSplitCount">{{ room_group.members|length }} members</strong></span>
+              <span id="roomSplitPerHead" style="font-size: 0.95rem;">₹0.00 / person</span>
+            </div>
+          </div>
+
+          <!-- Split Across Future Months (Optional) -->
+          <div style="background: #f8fafc; border: 1.5px dashed #cbd5e1; border-radius: var(--radius-sm); padding: 0.85rem 1rem; margin-top: 1rem;">
+            <label for="roomEnableFutureSplit" style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.88rem; font-weight: 700; color: var(--text-primary); cursor: pointer; margin: 0;">
+              <input type="checkbox" id="roomEnableFutureSplit" name="is_split" value="true" onchange="toggleSharedFutureSplit('room', this);" style="width: 16px; height: 16px; accent-color: var(--accent-primary);">
+              <span>🔄 Split Bill Across Future Months (Optional)</span>
+            </label>
+            <div id="roomFutureSplitBox" style="display: none; margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid #e2e8f0;">
+              <div class="form-grid" style="margin-bottom: 0;">
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label">Number of Months</label>
+                  <select name="split_months" id="roomFutureSplitMonths" class="form-select form-select-sm" onchange="updateSharedFutureSplitPreview('room');">
+                    <option value="2">2 Months</option>
+                    <option value="3" selected>3 Months</option>
+                    <option value="4">4 Months</option>
+                    <option value="6">6 Months</option>
+                    <option value="12">12 Months</option>
+                  </select>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label">Monthly Installment</label>
+                  <div id="roomFutureSplitPreview" style="padding: 0.45rem 0.75rem; background: #eef2ff; color: #4338ca; border-radius: var(--radius-sm); font-weight: 700; font-size: 0.84rem;">
+                    Enter amount above
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="entry-box-actions" style="margin-top: 1rem;">
+            <button type="button" class="btn btn-secondary" onclick="closeAddSharedExpenseModal('room');">Cancel</button>
+            <button type="submit" class="btn btn-primary" style="padding: 0.65rem 1.5rem; font-weight: 700;">
+              ➕ Save Shared Bill &rarr;
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Edit Shared Bill Modal for Room Sharing -->
+    <div id="roomEditBillModal" class="modal-backdrop" style="display: none;" onclick="closeOnBackdropClick(event, 'roomEditBillModal');">
+      <div class="modal-card" style="max-width: 640px;" onclick="event.stopPropagation();">
+        <div class="modal-header">
+          <div>
+            <div class="modal-eyebrow">Modify Entry &bull; {{ room_group.name }}</div>
+            <h3 class="modal-title">✏️ Edit Shared Bill</h3>
+          </div>
+          <button type="button" class="modal-close-btn" onclick="closeEditSharedExpenseModal('room');">&times;</button>
+        </div>
+
+        <form method="post" action="" id="roomEditExpenseForm" style="padding: 1.5rem;">
+          {% csrf_token %}
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label">Date *</label>
+              <input type="date" name="date" id="roomEditBillDate" class="form-input" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Total Bill Amount (₹ INR) *</label>
+              <div style="position: relative;">
+                <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-weight: 700; color: var(--text-muted);">₹</span>
+                <input type="number" id="roomEditBillAmount" name="amount" step="0.01" min="0.01" class="form-input" style="padding-left: 28px; font-weight: 700;" placeholder="0.00" oninput="updateRoomEditSplitPreview();" required>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label">Purpose / Description *</label>
+              <input type="text" name="description" id="roomEditBillDescription" class="form-input" placeholder="e.g. KFC, Rent, Groceries, Curd, Rice, Rapido, DSL Mall Dmart" required>
+            </div>
+            <div class="form-group">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                <label class="form-label" style="margin-bottom: 0;">Category *</label>
+                <button type="button" onclick="openAddSharedCategoryModal('room');" style="font-size: 0.78rem; color: var(--accent-primary); font-weight: 600; cursor: pointer; background: none; border: none; padding: 0;">
+                  ➕ Add New Category
+                </button>
+              </div>
+              <select name="category" id="roomEditBillCategory" class="styled-category-select" onchange="handleSharedCategorySelectChange('room', this);" required>
+                {% for cat in room_group.available_categories %}
+                <option value="{{ cat }}">{{ cat }}</option>
+                {% endfor %}
+                <option value="__custom__" style="color: var(--accent-primary); font-weight: 700;">➕ + Add New Category...</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 1.25rem;">
+            <label class="form-label">Paid By (Who paid this bill?) *</label>
+            <select name="paid_by" id="roomEditBillPaidBy" class="styled-category-select">
+              {% for m in room_group.members %}
+              <option value="{{ m.user.id }}">
+                {{ m.display_name }} {% if m.is_current_user %}(You){% endif %}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <!-- Split Members Checkboxes & Live Calculation -->
+          <div class="sharing-split-selector">
+            <div class="sharing-split-selector__header">
+              <span class="sharing-split-selector__label">👥 Split Between (Select who shares this bill):</span>
+              <div class="sharing-split-selector__actions">
+                <button type="button" class="sharing-split-selector__quick-btn" onclick="selectAllEditSplitMembers('room');">Select All</button>
+                <button type="button" class="sharing-split-selector__quick-btn" onclick="selectOnlyMeEditSplit('room', '{{ request.user.id }}');">Only Me</button>
+              </div>
+            </div>
+
+            <div class="sharing-split-selector__grid" id="roomEditSplitMembersGrid">
+              {% for m in room_group.members %}
+              <label class="sharing-split-selector__item">
+                <input type="checkbox" name="split_members" value="{{ m.user.id }}" class="sharing-split-selector__checkbox room-edit-split-checkbox" onchange="updateRoomEditSplitPreview();">
+                {% if m.avatar %}
+                <img src="{{ m.avatar.url }}" class="sharing-split-selector__avatar" alt="{{ m.display_name }}">
+                {% else %}
+                <div class="sharing-split-selector__avatar">{{ m.initials }}</div>
+                {% endif %}
+                <span>{{ m.display_name }}{% if m.is_current_user %} (You){% endif %}</span>
+              </label>
+              {% endfor %}
+            </div>
+
+            <div class="sharing-split-selector__preview" id="roomEditSplitPreview">
+              <span>✨ Split Between: <strong id="roomEditSplitCount">{{ room_group.members|length }} members</strong></span>
+              <span id="roomEditSplitPerHead" style="font-size: 0.95rem;">₹0.00 / person</span>
+            </div>
+          </div>
+
+          <div class="entry-box-actions" style="margin-top: 1rem;">
+            <button type="button" class="btn btn-secondary" onclick="closeEditSharedExpenseModal('room');">Cancel</button>
+            <button type="submit" class="btn btn-primary" style="padding: 0.65rem 1.5rem; font-weight: 700;">
+              💾 Save Changes &rarr;
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+
+    {% else %}
+    <!-- Room Setup Section (When user has not joined or created a room) -->
+    {% if is_viewer %}
+    <div class="empty-state" style="padding: 3rem 1.5rem; max-width: 520px; margin: 2rem auto;">
+      <div class="empty-icon">🏠</div>
+      <p>No active Room Sharing group found for <strong>{{ profile.full_name|default:profile.user.username }}</strong>.</p>
+      <span class="empty-hint">The account owner has not created or joined a room group yet.</span>
+    </div>
+    {% else %}
+    <div class="sharing-setup-grid">
+      <!-- Card 1: Join Room with Passkey -->
+      <div class="sharing-dialog-card sharing-dialog-card--setup">
+        <div class="sharing-dialog-card__badge-tag">🔑 Join Existing</div>
+        <h2 class="sharing-dialog-card__title">
+          <span>Join with Passkey</span>
+        </h2>
+        <p class="sharing-dialog-card__desc">
+          If any of your roommates has already created a room, enter their <strong>Passkey</strong> below to join and
+          connect your profile cards:
+        </p>
+
+        <form method="post" action="{% url 'join_sharing_group' %}">
+          {% csrf_token %}
+          <input type="hidden" name="group_type" value="room">
+
+          <div class="form-group" style="margin-bottom: 1.25rem;">
+            <label class="form-label" for="roomPasskeyInput">Room Passkey *</label>
+            <input type="text" id="roomPasskeyInput" name="passkey" class="form-input" placeholder="e.g. ROOM-1234"
+              style="font-family: monospace; font-size: 1.15rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;"
+              required>
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-block"
+            style="padding: 0.75rem; font-size: 0.95rem; font-weight: 700;">
+            Join Room Sharing &rarr;
+          </button>
+        </form>
+      </div>
+
+      <!-- Card 2: Create New Room & Generate Passkey -->
+      <div class="sharing-dialog-card sharing-dialog-card--setup">
+        <div class="sharing-dialog-card__badge-tag" style="background: #eef2ff; color: #4338ca;">➕ Create Group</div>
+        <h2 class="sharing-dialog-card__title">
+          <span>Create New Room</span>
+        </h2>
+        <p class="sharing-dialog-card__desc">
+          Select the number of roommates to generate a unique passkey code. Your profile card will be displayed, along
+          with waiting cards for your flatmates:
+        </p>
+
+        <form method="post" action="{% url 'create_sharing_group' %}" id="createRoomForm">
+          {% csrf_token %}
+          <input type="hidden" name="group_type" value="room">
+          <input type="hidden" name="total_members" id="roomTotalMembersInput" value="3">
+
+          <div class="form-group" style="margin-bottom: 1rem;">
+            <label class="form-label">How Many Roommates / Members? *</label>
+            <div class="sharing-pane__pills" id="roomMemberPills">
+              <button type="button" class="sharing-pane__pill-btn" onclick="selectMemberCount('room', 2, this);">2
+                Members</button>
+              <button type="button" class="sharing-pane__pill-btn sharing-pane__pill-btn--active"
+                onclick="selectMemberCount('room', 3, this);">3 Members</button>
+              <button type="button" class="sharing-pane__pill-btn" onclick="selectMemberCount('room', 4, this);">4
+                Members</button>
+              <button type="button" class="sharing-pane__pill-btn" onclick="selectMemberCount('room', 5, this);">5
+                Members</button>
+              <button type="button" class="sharing-pane__pill-btn" onclick="selectMemberCount('room', 6, this);">6
+                Members</button>
+              <button type="button" class="sharing-pane__pill-btn" onclick="toggleCustomMemberInput('room', this);">⚙️
+                Custom</button>
+            </div>
+            <div id="roomCustomMembersWrap" style="display: none; margin-top: 0.65rem;">
+              <input type="number" id="roomCustomMembersField" min="2" max="50" class="form-input form-input-sm" placeholder="Enter exact member count (e.g. 8, 12)" oninput="applyCustomMemberCount('room', this.value);">
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 1.25rem;">
+            <label class="form-label">Room / Flat Name (Optional)</label>
+            <input type="text" name="name" class="form-input" placeholder="e.g. Flat 302, Green Valley">
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-block"
+            style="padding: 0.75rem; font-size: 0.95rem; font-weight: 700;">
+            ✨ Create Room &amp; Generate Passkey
+          </button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+    {% endif %}
+  </div>
+
+
+  <!-- =========================================================================
+       SCREEN 3: TRIP SHARING INTERNAL PANE
+       ========================================================================= -->
+  <div class="sharing-pane" id="tripSharingPane" style="display: none;">
+    <!-- Top Back Navigation -->
+    <div class="sharing-pane__nav">
+      <button type="button" class="sharing-pane__back-btn" onclick="backToLanding();">
+        &larr; Back to Sharing Hub
+      </button>
+      <span class="badge-pill" style="background: #ccfbf1; color: #0f766e; border-color: #99f6e4;">✈️ Trip
+        Sharing</span>
+    </div>
+
+    {% if is_viewer %}
+    <div class="alert alert-info" style="margin-bottom: 1.25rem; display: flex; align-items: center; gap: 0.75rem;">
+      <span style="font-size: 1.35rem;">👀</span>
+      <div>
+        <strong>Viewer Mode (Read-Only)</strong>: You are viewing <strong>{{ profile.full_name|default:profile.user.username }}</strong>'s trip sharing group and bills. All actions, modifications, and settlements are disabled.
+      </div>
+    </div>
+    {% endif %}
+
+    {% if has_trip_group %}
+    <!-- Trip Passkey Banner Header -->
+    <div class="sharing-banner sharing-banner--trip">
+      <div class="sharing-banner__info">
+        <span class="sharing-banner__icon">✈️</span>
+        <div>
+          <h3 class="sharing-banner__title">{{ trip_group.name }}</h3>
+          <span class="sharing-banner__badge">
+            👥 {{ trip_group.current_members_count }} of {{ trip_group.total_members }} Members Joined
+          </span>
+        </div>
+      </div>
+
+      <div class="sharing-banner__controls">
+        <div class="sharing-banner__passkey-box">
+          <span class="sharing-banner__passkey-label">Passkey:</span>
+          <span class="sharing-banner__passkey-val" id="tripPasskeyValue">{{ trip_group.passkey }}</span>
+          <button type="button" class="sharing-banner__copy-btn"
+            onclick="copyPasskey('{{ trip_group.passkey }}', this);">
+            📋 Copy
+          </button>
+        </div>
+
+        {% if not is_viewer %}
+        <!-- Leave / Dissolve Trip Form -->
+        <form method="post" action="{% url 'leave_sharing_group' trip_group.id %}"
+          onsubmit="return confirm('Are you sure you want to {% if trip_group.is_creator %}dissolve this trip group{% else %}leave this trip group{% endif %}?');">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-secondary btn-sm"
+            style="background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.35);">
+            {% if trip_group.is_creator %}Dissolve Trip{% else %}Leave Trip{% endif %}
+          </button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Month and Year Selection Filter for Trip Sharing -->
+    <div class="filter-bar" style="margin-top: 1.25rem; margin-bottom: 1.5rem;">
+      <form method="get" id="tripMonthYearForm" class="filter-form">
+        <input type="hidden" name="mode" value="trip">
+        <div class="filter-label">
+          <span>📅 Select Month & Year:</span>
+        </div>
+
+        <div class="filter-controls">
+          <select name="month" class="form-select" onchange="document.getElementById('tripMonthYearForm').submit();">
+            {% for num, name in months_list %}
+            <option value="{{ num }}" {% if num == selected_month %}selected{% endif %}>
+              {{ name }}
+            </option>
+            {% endfor %}
+          </select>
+
+          <select name="year" class="form-select" onchange="document.getElementById('tripMonthYearForm').submit();">
+            {% for y in years_list %}
+            <option value="{{ y }}" {% if y == selected_year %}selected{% endif %}>
+              {{ y }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="filter-active-indicator">
+          Showing: <strong>{{ month_name }} {{ selected_year }}</strong>
+        </div>
+      </form>
+    </div>
+
+
+    <!-- Member Profile Cards Grid (Side-by-side 3 people) -->
+    <div class="sharing-members-grid">
+      <!-- 1. Joined Members Cards (Logged-in User is #1, followed by travel mates) -->
+      {% for member in trip_group.members %}
+      <div class="profile-card sharing-member-card">
+        <!-- Top: Avatar -->
+        <div class="sharing-member-card__avatar-wrap">
+          <div class="profile-avatar-wrapper">
+            {% if member.avatar %}
+            <img src="{{ member.avatar.url }}" alt="{{ member.display_name }}" class="profile-photo">
+            {% else %}
+            <div class="profile-avatar-initials" style="background: linear-gradient(135deg, #0f766e, #115e59);">{{ member.initials }}</div>
+            {% endif %}
+          </div>
+        </div>
+
+        <!-- Middle: Name Details -->
+        <div class="sharing-member-card__user-meta">
+          <h2 class="profile-name">{{ member.display_name }}</h2>
+          <div class="profile-age">
+            Member Slot #{{ member.slot_number }}
+            {% if member.age %} &bull; Age: {{ member.age }} yrs{% endif %}
+          </div>
+          <div class="sharing-member-card__badges">
+            {% if member.is_current_user %}
+            <span class="profile-badge">You</span>
+            {% else %}
+            <span class="profile-badge" style="background: #ccfbf1; color: #0f766e;">Trip Mate</span>
+            {% endif %}
+            {% if member.is_creator %}
+            <span class="profile-badge" style="background: #fef3c7; color: #92400e;">Creator</span>
+            {% endif %}
+          </div>
+        </div>
+
+        <!-- Bottom: Monthly Expense, Fair Share, and Net Balance Badge -->
+        <div class="sharing-member-card__metrics">
+          <div class="metric-card active-metric-card sharing-member-card__metric"
+               onclick="openMemberSplitBreakdownModal('trip', {{ member.user.id }}, '{{ member.display_name|escapejs }}');"
+               style="cursor: pointer;"
+               title="Click to view detailed split breakdown for {{ member.display_name }}">
+            <div class="metric-card-header">
+              <span class="metric-icon">💳</span>
+              <span class="metric-label">{% if trip_group.has_shared_bills %}Total Spent / Paid{% else %}Monthly Spent ({{ month_name }} {{ current_year }}){% endif %}</span>
+            </div>
+            <div class="metric-amount">
+              ₹{{ member.monthly_spent|floatformat:2 }}
+            </div>
+            <div class="metric-subtext">
+              {% if trip_group.has_shared_bills %}Amount paid by {{ member.display_name }}{% else %}Current month spending{% endif %}
+            </div>
+            <span class="metric-click-hint">🔍 View Split Breakdown &rarr;</span>
+          </div>
+
+          <div class="metric-card sharing-member-card__metric"
+               onclick="openMemberSplitBreakdownModal('trip', {{ member.user.id }}, '{{ member.display_name|escapejs }}');"
+               style="cursor: pointer;"
+               title="Click to view detailed split breakdown for {{ member.display_name }}">
+            <div class="metric-card-header">
+              <span class="metric-icon">⚖️</span>
+              <span class="metric-label">{% if trip_group.has_shared_bills %}Fair Share / Average{% else %}Monthly Average{% endif %}</span>
+            </div>
+            <div class="metric-amount">
+              ₹{{ member.monthly_average|floatformat:2 }}
+            </div>
+            <div class="metric-subtext">
+              {% if trip_group.has_shared_bills %}Expected share of trip bills{% else %}Average monthly spend{% endif %}
+            </div>
+            <span class="metric-click-hint">🔍 View Split Breakdown &rarr;</span>
+          </div>
+
+          <!-- Net Balance Badge -->
+          {% if member.balance_status == 'extra' %}
+          <div class="sharing-balance-badge sharing-balance-badge--extra" title="Paid more than fair share">
+            <span>▲</span>
+            <span>{{ member.balance_label }}</span>
+          </div>
+          {% elif member.balance_status == 'short' %}
+          <div class="sharing-balance-badge sharing-balance-badge--short" title="Owes share to travel companions">
+            <span>▼</span>
+            <span>{{ member.balance_label }}</span>
+          </div>
+          {% else %}
+          <div class="sharing-balance-badge sharing-balance-badge--settled">
+            <span>✓</span>
+            <span>{{ member.balance_label }}</span>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+
+      <!-- 2. Empty Waiting Slots Cards -->
+      {% for empty_slot in trip_group.empty_slots %}
+      <div class="sharing-empty-card">
+        <div class="sharing-empty-card__avatar-wrap">
+          <div class="sharing-empty-card__avatar">⏳</div>
+        </div>
+
+        <div class="sharing-empty-card__meta">
+          <div class="sharing-empty-card__title">
+            Trip Mate Slot #{{ empty_slot.slot_number }} (Waiting to Join)
+          </div>
+          <div style="margin: 0.35rem 0;">
+            <span class="profile-badge" style="background: #f1f5f9; color: #64748b;">Waiting to Join</span>
+          </div>
+          <div class="sharing-empty-card__subtext">
+            Share passkey <strong>{{ trip_group.passkey }}</strong> with your friend. When they log in and enter this
+            passkey, their card will automatically appear here.
+          </div>
+        </div>
+
+        <div class="sharing-empty-card__action">
+          <button type="button" class="btn btn-secondary btn-sm"
+            onclick="copyPasskey('{{ trip_group.passkey }}', this);"
+            style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.4rem; padding: 0.65rem;">
+            <span>📋</span>
+            <span>Copy Passkey</span>
+          </button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- Category Breakdown Section for Trip -->
+    <div class="section-card" id="tripCategoriesSection" style="margin-top: 1.5rem; width: 100%;">
+      <div class="section-header">
+        <div class="section-title">
+          <span>📊</span>
+          <span>Trip Expense Breakdown ({{ trip_group.name }})</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+          <span class="badge-pill" style="background: #ccfbf1; color: #0f766e; border-color: #99f6e4;">{{ trip_group.category_breakdown|length }} Categories Active</span>
+          {% if not is_viewer %}
+          <button type="button" class="btn btn-secondary btn-sm" onclick="openAddSharedCategoryModal('trip');" style="display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600;">
+            <span>➕</span>
+            <span>Add Category</span>
+          </button>
+          <button type="button" class="btn btn-primary btn-sm" onclick="openAddSharedExpenseModal('trip');" style="display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700; background: #0f766e; border-color: #0f766e;">
+            <span>➕</span>
+            <span>Enter New Bill</span>
+          </button>
+          {% endif %}
+          <small style="color: var(--text-muted); font-size: 0.78rem;">(Click category card to view detailed bills)</small>
+        </div>
+      </div>
+
+      <div class="section-body">
+        {% if trip_group.category_breakdown %}
+        <div class="breakdown-grid">
+          {% for cat in trip_group.category_breakdown %}
+          <div class="breakdown-card category-clickable-card trip-cat-card"
+               onclick="openSharedCategoryModal('trip', '{{ cat.name|escapejs }}');"
+               data-category="{{ cat.name }}"
+               title="Click to view all {{ cat.name }} bills in detail">
+            <div class="breakdown-card-top">
+              <span class="category-tag">
+                <span class="category-icon">{{ cat.icon }}</span>
+                {{ cat.name }}
+              </span>
+              <span class="breakdown-amount">₹{{ cat.amount|floatformat:2 }}</span>
+            </div>
+
+            <!-- Percentage Progress Bar -->
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill" style="width: {{ cat.percentage }}%; background: linear-gradient(90deg, #0f766e, #14b8a6);"></div>
+            </div>
+
+            <div class="breakdown-card-bottom">
+              <span>{{ cat.count }} bill{{ cat.count|pluralize }}</span>
+              <span class="percentage-text">{{ cat.percentage }}% of trip spend</span>
+            </div>
+
+            <div class="card-click-hint">
+              <span>📁 View {{ cat.name }} bills &rarr;</span>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">
+          <div class="empty-icon">🏖️</div>
+          <p>No shared bills recorded in <strong>{{ trip_group.name }}</strong> yet.</p>
+          {% if not is_viewer %}
+          <span class="empty-hint">Click <strong>"Enter New Bill"</strong> to record the first trip expense!</span>
+          {% endif %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Shared Bills History Section for Trip -->
+    <div class="section-card" id="tripHistorySection" style="margin-top: 1.5rem; width: 100%;">
+      <div class="section-header">
+        <div class="section-title">
+          <span>📝</span>
+          <span>Shared Bills History ({{ trip_group.expenses_count }} Entries)</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+          <span class="badge-pill" style="background: #ccfbf1; color: #0f766e; border-color: #99f6e4; font-weight: 800;">
+            Total Spend: ₹{{ trip_group.total_spent|floatformat:2 }}
+          </span>
+          <button type="button" class="btn-export-pdf" onclick="exportSharingPdf('trip');" title="Export filtered Trip bills to PDF">
+            📄 Export PDF
+          </button>
+          {% if not is_viewer %}
+          <button type="button" class="btn btn-primary" onclick="openAddSharedExpenseModal('trip');" style="background: #0f766e; border-color: #0f766e;">
+            ➕ Enter New Bill
+          </button>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Filters Toolbar (Paid By, Split With, Category & Reset) -->
+      <div class="sharing-filters-toolbar">
+        <div class="sharing-filters-toolbar__top">
+          <div class="sharing-filters-toolbar__title">
+            <span>🔍</span>
+            <span>Filter Shared Bills</span>
+            <small style="color: var(--text-muted); font-weight: 500;">(Filter by who paid, split with whom, or category)</small>
+          </div>
+          <div>
+            <span id="tripFilterLiveBadge" class="filter-count-badge" style="display: none;"></span>
+          </div>
+        </div>
+
+        <div class="sharing-filters-toolbar__grid">
+          <!-- 1. Paid By Filter -->
+          <div class="sharing-filters-toolbar__item">
+            <label class="sharing-filters-toolbar__label" for="tripFilterPaidBy">
+              💳 Paid By
+            </label>
+            <select id="tripFilterPaidBy" class="sharing-filters-toolbar__select" onchange="applySharedBillsFilters('trip');">
+              <option value="all">All Travel Mates</option>
+              {% for m in trip_group.members %}
+              <option value="{{ m.user.id }}">{{ m.display_name }}{% if m.is_current_user %} (You){% endif %}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <!-- 2. Split With Filter -->
+          <div class="sharing-filters-toolbar__item">
+            <label class="sharing-filters-toolbar__label" for="tripFilterSplitWith">
+              👥 Split With
+            </label>
+            <select id="tripFilterSplitWith" class="sharing-filters-toolbar__select" onchange="applySharedBillsFilters('trip');">
+              <option value="all">All Splits</option>
+              <option value="all_members">All Members Together</option>
+              {% for m in trip_group.members %}
+              <option value="{{ m.user.id }}">Includes {{ m.display_name }}{% if m.is_current_user %} (You){% endif %}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <!-- 3. Category Filter -->
+          <div class="sharing-filters-toolbar__item">
+            <label class="sharing-filters-toolbar__label" for="tripFilterCategorySelect">
+              🏷️ Category
+            </label>
+            <select id="tripFilterCategorySelect" class="sharing-filters-toolbar__select" onchange="applySharedBillsFilters('trip');">
+              <option value="all">All Categories</option>
+              {% for cat in trip_group.category_breakdown %}
+              <option value="{{ cat.name }}">{{ cat.name }} ({{ cat.count }})</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <!-- 4. Reset Button -->
+          <div class="sharing-filters-toolbar__item" style="justify-content: flex-end;">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="resetSharedBillsFilters('trip');" style="height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;">
+              ✕ Reset Filters
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Active Category Filter Banner for Trip -->
+      <div id="tripCategoryFilterBanner" class="category-filter-banner" style="display: none;">
+        <div class="filter-banner-text">
+          <span>🏷️ Filtered by Category:</span>
+          <strong id="tripFilterCategoryName" class="filter-pill-active"></strong>
+          <span id="tripFilterCount" class="filter-count-text"></span>
+        </div>
+        <button type="button" class="btn-clear-filter" onclick="clearSharedBillsCategoryFilter('trip');">
+          ✕ Show All Categories
+        </button>
+      </div>
+
+      <!-- Shared Bills Table for Trip -->
+      <div class="table-responsive">
+        <table class="data-table" id="tripBillsTable">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Purpose / Description</th>
+              <th>Category</th>
+              <th style="text-align: right;">Total Bill (₹)</th>
+              <th>Paid By</th>
+              <th>Split With</th>
+              <th style="text-align: right;">Share / Person (₹)</th>
+              {% if not is_viewer %}<th style="text-align: right;">Action</th>{% endif %}
+            </tr>
+          </thead>
+          <tbody id="tripBillsTableBody">
+            {% for exp in trip_group.expenses_history %}
+            <tr class="expense-row trip-expense-row"
+                data-category="{{ exp.category|lower }}"
+                data-paid-by="{{ exp.paid_by_id }}"
+                data-split-ids="{{ exp.split_ids_json }}"
+                data-split-count="{{ exp.split_count }}"
+                id="trip-exp-{{ exp.id }}">
+              <td style="white-space: nowrap; color: var(--text-muted); font-size: 0.85rem;">
+                {{ exp.date|date:"d/m/Y" }}
+              </td>
+              <td class="col-primary">
+                {{ exp.description }}
+              </td>
+              <td>
+                <span class="category-pill clickable-pill" onclick="openSharedCategoryModal('trip', '{{ exp.category|escapejs }}');" title="View {{ exp.category }} details">
+                  {{ exp.category_icon }} {{ exp.category }}
+                </span>
+              </td>
+              <td class="col-amount">
+                ₹{{ exp.amount|floatformat:2 }}
+              </td>
+              <td>
+                <div class="sharing-history-payer">
+                  {% if exp.paid_by_avatar %}
+                  <img src="{{ exp.paid_by_avatar }}" class="sharing-history-avatar" alt="{{ exp.paid_by_name }}">
+                  {% else %}
+                  <div class="sharing-history-avatar" style="background: #0f766e;">{{ exp.paid_by_initials }}</div>
+                  {% endif %}
+                  <span>
+                    {{ exp.paid_by_name }}
+                    {% if exp.is_paid_by_current_user %}<strong style="color: #0f766e; font-size: 0.78rem;">(You)</strong>{% endif %}
+                  </span>
+                </div>
+              </td>
+              <td>
+                <span class="sharing-split-tag" title="{{ exp.split_desc }}">
+                  👥 {{ exp.split_desc }}
+                </span>
+              </td>
+              <td style="text-align: right; font-weight: 700; color: #0f766e;">
+                ₹{{ exp.per_head|floatformat:2 }}
+              </td>
+              {% if not is_viewer %}
+              <td style="text-align: right; white-space: nowrap;">
+                {% if exp.can_edit %}
+                <button type="button"
+                        class="btn-edit"
+                        title="Edit this shared bill"
+                        style="margin-right: 0.35rem;"
+                        onclick="openEditSharedExpenseModal('trip', {{ exp.id }}, '{{ exp.date|date:'Y-m-d' }}', '{{ exp.amount }}', '{{ exp.description|escapejs }}', '{{ exp.category|escapejs }}', {{ exp.paid_by_id }}, {{ exp.split_ids_json|safe }});">
+                  ✏️
+                </button>
+                {% endif %}
+                {% if exp.can_delete %}
+                <form method="post" action="{% url 'delete_shared_expense' exp.id %}" style="display: inline;" onsubmit="return confirm('Delete shared bill '₹{{ exp.amount }} - {{ exp.description }}'?');">
+                  {% csrf_token %}
+                  <button type="submit" class="btn-delete" title="Delete bill">🗑️</button>
+                </form>
+                {% endif %}
+              </td>
+              {% endif %}
+            </tr>
+            {% empty %}
+            <tr id="tripEmptyRow">
+              <td colspan="{% if is_viewer %}7{% else %}8{% endif %}" class="table-empty-row">
+                No shared bills recorded in {{ trip_group.name }} yet.{% if not is_viewer %} Click <strong>"Enter New Bill"</strong> to add the first one!{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+            <!-- Filter No Match Row -->
+            <tr id="tripFilterNoMatchRow" style="display: none;">
+              <td colspan="{% if is_viewer %}7{% else %}8{% endif %}" class="table-empty-row" style="background: #fafbfc; padding: 2rem !important;">
+                <div style="font-size: 1.6rem; margin-bottom: 0.35rem;">🔍</div>
+                <strong style="color: var(--text-primary); font-size: 0.95rem;">No shared bills match your selected filters.</strong>
+                <div style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem;">
+                  Try adjusting the Paid By, Split With, or Category filter.
+                </div>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="resetSharedBillsFilters('trip');" style="margin-top: 0.75rem;">
+                  ✕ Reset All Filters
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div id="tripHistoryPagination" class="pagination-bar" style="display: none;"></div>
+    </div>
+
+    <!-- Enter New Bill Modal for Trip Sharing -->
+    {% if not is_viewer %}
+    <div id="tripAddBillModal" class="modal-backdrop" style="display: none;" onclick="closeOnBackdropClick(event, 'tripAddBillModal');">
+      <div class="modal-card" style="max-width: 640px;" onclick="event.stopPropagation();">
+        <div class="modal-header">
+          <div>
+            <div class="modal-eyebrow" style="color: #0f766e;">Trip Sharing &bull; {{ trip_group.name }}</div>
+            <h3 class="modal-title">➕ Enter New Shared Bill</h3>
+          </div>
+          <button type="button" class="modal-close-btn" onclick="closeAddSharedExpenseModal('trip');">&times;</button>
+        </div>
+
+        <form method="post" action="{% url 'add_shared_expense' %}" id="tripAddExpenseForm" style="padding: 1.5rem;">
+          {% csrf_token %}
+          <input type="hidden" name="group_id" value="{{ trip_group.id }}">
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label">Date *</label>
+              <input type="date" name="date" class="form-input" value="{{ today|date:'Y-m-d' }}" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Total Bill Amount (₹ INR) *</label>
+              <div style="position: relative;">
+                <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-weight: 700; color: var(--text-muted);">₹</span>
+                <input type="number" id="tripBillAmount" name="amount" step="0.01" min="0.01" class="form-input" style="padding-left: 28px; font-weight: 700;" placeholder="0.00" oninput="updateTripSplitPreview();" required>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label">Purpose / Description *</label>
+              <input type="text" name="description" class="form-input" placeholder="e.g. Hotel Stay, Flight, Dinner, Taxi, Museum Tickets" required>
+            </div>
+            <div class="form-group">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                <label class="form-label" style="margin-bottom: 0;">Category *</label>
+                <button type="button" onclick="openAddSharedCategoryModal('trip');" style="font-size: 0.78rem; color: #0f766e; font-weight: 600; cursor: pointer; background: none; border: none; padding: 0;">
+                  ➕ Add New Category
+                </button>
+              </div>
+              <select name="category" id="tripAddExpenseCategorySelect" class="styled-category-select" onchange="handleSharedCategorySelectChange('trip', this);" required>
+                {% for cat in trip_group.available_categories %}
+                <option value="{{ cat }}">{{ cat }}</option>
+                {% endfor %}
+                <option value="__custom__" style="color: #0f766e; font-weight: 700;">➕ + Add New Category...</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 1.25rem;">
+            <label class="form-label">Paid By (Who paid this bill?) *</label>
+            <select name="paid_by" class="styled-category-select">
+              {% for m in trip_group.members %}
+              <option value="{{ m.user.id }}" {% if m.is_current_user %}selected{% endif %}>
+                {{ m.display_name }} {% if m.is_current_user %}(You){% endif %}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <!-- Split Members Checkboxes & Live Calculation -->
+          <div class="sharing-split-selector">
+            <div class="sharing-split-selector__header">
+              <span class="sharing-split-selector__label">👥 Split Between (Select who shares this bill):</span>
+              <div class="sharing-split-selector__actions">
+                <button type="button" class="sharing-split-selector__quick-btn" onclick="selectAllSplitMembers('trip');">Select All</button>
+                <button type="button" class="sharing-split-selector__quick-btn" onclick="selectOnlyMeSplit('trip', '{{ request.user.id }}');">Only Me</button>
+              </div>
+            </div>
+
+            <div class="sharing-split-selector__grid" id="tripSplitMembersGrid">
+              {% for m in trip_group.members %}
+              <label class="sharing-split-selector__item">
+                <input type="checkbox" name="split_members" value="{{ m.user.id }}" class="sharing-split-selector__checkbox trip-split-checkbox" checked onchange="updateTripSplitPreview();">
+                {% if m.avatar %}
+                <img src="{{ m.avatar.url }}" class="sharing-split-selector__avatar" alt="{{ m.display_name }}">
+                {% else %}
+                <div class="sharing-split-selector__avatar" style="background: #0f766e;">{{ m.initials }}</div>
+                {% endif %}
+                <span>{{ m.display_name }}{% if m.is_current_user %} (You){% endif %}</span>
+              </label>
+              {% endfor %}
+            </div>
+
+            <div class="sharing-split-selector__preview" id="tripSplitPreview" style="background: #ccfbf1; border-color: #99f6e4; color: #0f766e;">
+              <span>✨ Split Between: <strong id="tripSplitCount">{{ trip_group.members|length }} members</strong></span>
+              <span id="tripSplitPerHead" style="font-size: 0.95rem;">₹0.00 / person</span>
+            </div>
+          </div>
+
+          <!-- Split Across Future Months (Optional) -->
+          <div style="background: #f0fdfa; border: 1.5px dashed #99f6e4; border-radius: var(--radius-sm); padding: 0.85rem 1rem; margin-top: 1rem;">
+            <label for="tripEnableFutureSplit" style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.88rem; font-weight: 700; color: #0f766e; cursor: pointer; margin: 0;">
+              <input type="checkbox" id="tripEnableFutureSplit" name="is_split" value="true" onchange="toggleSharedFutureSplit('trip', this);" style="width: 16px; height: 16px; accent-color: #0f766e;">
+              <span>🔄 Split Bill Across Future Months (Optional)</span>
+            </label>
+            <div id="tripFutureSplitBox" style="display: none; margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid #ccfbf1;">
+              <div class="form-grid" style="margin-bottom: 0;">
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label">Number of Months</label>
+                  <select name="split_months" id="tripFutureSplitMonths" class="form-select form-select-sm" onchange="updateSharedFutureSplitPreview('trip');">
+                    <option value="2">2 Months</option>
+                    <option value="3" selected>3 Months</option>
+                    <option value="4">4 Months</option>
+                    <option value="6">6 Months</option>
+                    <option value="12">12 Months</option>
+                  </select>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label">Monthly Installment</label>
+                  <div id="tripFutureSplitPreview" style="padding: 0.45rem 0.75rem; background: #ccfbf1; color: #0f766e; border-radius: var(--radius-sm); font-weight: 700; font-size: 0.84rem;">
+                    Enter amount above
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="entry-box-actions" style="margin-top: 1rem;">
+            <button type="button" class="btn btn-secondary" onclick="closeAddSharedExpenseModal('trip');">Cancel</button>
+            <button type="submit" class="btn btn-primary" style="padding: 0.65rem 1.5rem; font-weight: 700; background: #0f766e; border-color: #0f766e;">
+              ➕ Save Shared Bill &rarr;
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Edit Shared Bill Modal for Trip Sharing -->
+    <div id="tripEditBillModal" class="modal-backdrop" style="display: none;" onclick="closeOnBackdropClick(event, 'tripEditBillModal');">
+      <div class="modal-card" style="max-width: 640px;" onclick="event.stopPropagation();">
+        <div class="modal-header">
+          <div>
+            <div class="modal-eyebrow" style="color: #0f766e;">Modify Entry &bull; {{ trip_group.name }}</div>
+            <h3 class="modal-title">✏️ Edit Shared Bill</h3>
+          </div>
+          <button type="button" class="modal-close-btn" onclick="closeEditSharedExpenseModal('trip');">&times;</button>
+        </div>
+
+        <form method="post" action="" id="tripEditExpenseForm" style="padding: 1.5rem;">
+          {% csrf_token %}
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label">Date *</label>
+              <input type="date" name="date" id="tripEditBillDate" class="form-input" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Total Bill Amount (₹ INR) *</label>
+              <div style="position: relative;">
+                <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-weight: 700; color: var(--text-muted);">₹</span>
+                <input type="number" id="tripEditBillAmount" name="amount" step="0.01" min="0.01" class="form-input" style="padding-left: 28px; font-weight: 700;" placeholder="0.00" oninput="updateTripEditSplitPreview();" required>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label">Purpose / Description *</label>
+              <input type="text" name="description" id="tripEditBillDescription" class="form-input" placeholder="e.g. Hotel Stay, Flight, Dinner, Taxi, Museum Tickets" required>
+            </div>
+            <div class="form-group">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                <label class="form-label" style="margin-bottom: 0;">Category *</label>
+                <button type="button" onclick="openAddSharedCategoryModal('trip');" style="font-size: 0.78rem; color: #0f766e; font-weight: 600; cursor: pointer; background: none; border: none; padding: 0;">
+                  ➕ Add New Category
+                </button>
+              </div>
+              <select name="category" id="tripEditBillCategory" class="styled-category-select" onchange="handleSharedCategorySelectChange('trip', this);" required>
+                {% for cat in trip_group.available_categories %}
+                <option value="{{ cat }}">{{ cat }}</option>
+                {% endfor %}
+                <option value="__custom__" style="color: #0f766e; font-weight: 700;">➕ + Add New Category...</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 1.25rem;">
+            <label class="form-label">Paid By (Who paid this bill?) *</label>
+            <select name="paid_by" id="tripEditBillPaidBy" class="styled-category-select">
+              {% for m in trip_group.members %}
+              <option value="{{ m.user.id }}">
+                {{ m.display_name }} {% if m.is_current_user %}(You){% endif %}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <!-- Split Members Checkboxes & Live Calculation -->
+          <div class="sharing-split-selector">
+            <div class="sharing-split-selector__header">
+              <span class="sharing-split-selector__label">👥 Split Between (Select who shares this bill):</span>
+              <div class="sharing-split-selector__actions">
+                <button type="button" class="sharing-split-selector__quick-btn" onclick="selectAllEditSplitMembers('trip');">Select All</button>
+                <button type="button" class="sharing-split-selector__quick-btn" onclick="selectOnlyMeEditSplit('trip', '{{ request.user.id }}');">Only Me</button>
+              </div>
+            </div>
+
+            <div class="sharing-split-selector__grid" id="tripEditSplitMembersGrid">
+              {% for m in trip_group.members %}
+              <label class="sharing-split-selector__item">
+                <input type="checkbox" name="split_members" value="{{ m.user.id }}" class="sharing-split-selector__checkbox trip-edit-split-checkbox" onchange="updateTripEditSplitPreview();">
+                {% if m.avatar %}
+                <img src="{{ m.avatar.url }}" class="sharing-split-selector__avatar" alt="{{ m.display_name }}">
+                {% else %}
+                <div class="sharing-split-selector__avatar" style="background: #0f766e;">{{ m.initials }}</div>
+                {% endif %}
+                <span>{{ m.display_name }}{% if m.is_current_user %} (You){% endif %}</span>
+              </label>
+              {% endfor %}
+            </div>
+
+            <div class="sharing-split-selector__preview" id="tripEditSplitPreview" style="background: #ccfbf1; border-color: #99f6e4; color: #0f766e;">
+              <span>✨ Split Between: <strong id="tripEditSplitCount">{{ trip_group.members|length }} members</strong></span>
+              <span id="tripEditSplitPerHead" style="font-size: 0.95rem;">₹0.00 / person</span>
+            </div>
+          </div>
+
+          <div class="entry-box-actions" style="margin-top: 1rem;">
+            <button type="button" class="btn btn-secondary" onclick="closeEditSharedExpenseModal('trip');">Cancel</button>
+            <button type="submit" class="btn btn-primary" style="padding: 0.65rem 1.5rem; font-weight: 700; background: #0f766e; border-color: #0f766e;">
+              💾 Save Changes &rarr;
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+
+    {% else %}
+    <!-- Trip Setup Section -->
+    {% if is_viewer %}
+    <div class="empty-state" style="padding: 3rem 1.5rem; max-width: 520px; margin: 2rem auto;">
+      <div class="empty-icon">✈️</div>
+      <p>No active Trip Sharing group found for <strong>{{ profile.full_name|default:profile.user.username }}</strong>.</p>
+      <span class="empty-hint">The account owner has not created or joined a trip group yet.</span>
+    </div>
+    {% else %}
+    <div class="sharing-setup-grid">
+      <!-- Card 1: Join Trip with Passkey -->
+      <div class="sharing-dialog-card sharing-dialog-card--setup sharing-dialog-card--trip">
+        <div class="sharing-dialog-card__badge-tag" style="background: #ccfbf1; color: #0f766e;">🔑 Join Existing</div>
+        <h2 class="sharing-dialog-card__title">
+          <span>Join with Passkey</span>
+        </h2>
+        <p class="sharing-dialog-card__desc">
+          Have a trip passkey from your travel companion? Enter it below to join the group:
+        </p>
+
+        <form method="post" action="{% url 'join_sharing_group' %}">
+          {% csrf_token %}
+          <input type="hidden" name="group_type" value="trip">
+
+          <div class="form-group" style="margin-bottom: 1.25rem;">
+            <label class="form-label" for="tripPasskeyInput">Trip Passkey *</label>
+            <input type="text" id="tripPasskeyInput" name="passkey" class="form-input" placeholder="e.g. TRIP-1234"
+              style="font-family: monospace; font-size: 1.15rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;"
+              required>
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-block"
+            style="padding: 0.75rem; font-size: 0.95rem; font-weight: 700; background: #0f766e; border-color: #0f766e;">
+            Join Trip Sharing &rarr;
+          </button>
+        </form>
+      </div>
+
+      <!-- Card 2: Create New Trip Group -->
+      <div class="sharing-dialog-card sharing-dialog-card--setup sharing-dialog-card--trip">
+        <div class="sharing-dialog-card__badge-tag" style="background: #ccfbf1; color: #0f766e;">➕ Create Group</div>
+        <h2 class="sharing-dialog-card__title">
+          <span>Create New Trip</span>
+        </h2>
+        <p class="sharing-dialog-card__desc">
+          Start a new trip group, choose member count, and generate a passkey for your travel companions:
+        </p>
+
+        <form method="post" action="{% url 'create_sharing_group' %}" id="createTripForm">
+          {% csrf_token %}
+          <input type="hidden" name="group_type" value="trip">
+          <input type="hidden" name="total_members" id="tripTotalMembersInput" value="3">
+
+          <div class="form-group" style="margin-bottom: 1rem;">
+            <label class="form-label">How Many Trip Members? *</label>
+            <div class="sharing-pane__pills" id="tripMemberPills">
+              <button type="button" class="sharing-pane__pill-btn" onclick="selectMemberCount('trip', 2, this);">2
+                Members</button>
+              <button type="button" class="sharing-pane__pill-btn sharing-pane__pill-btn--active-trip"
+                onclick="selectMemberCount('trip', 3, this);">3 Members</button>
+              <button type="button" class="sharing-pane__pill-btn" onclick="selectMemberCount('trip', 4, this);">4
+                Members</button>
+              <button type="button" class="sharing-pane__pill-btn" onclick="selectMemberCount('trip', 5, this);">5
+                Members</button>
+              <button type="button" class="sharing-pane__pill-btn" onclick="selectMemberCount('trip', 6, this);">6
+                Members</button>
+              <button type="button" class="sharing-pane__pill-btn" onclick="toggleCustomMemberInput('trip', this);">⚙️
+                Custom</button>
+            </div>
+            <div id="tripCustomMembersWrap" style="display: none; margin-top: 0.65rem;">
+              <input type="number" id="tripCustomMembersField" min="2" max="50" class="form-input form-input-sm" placeholder="Enter exact member count (e.g. 8, 12)" oninput="applyCustomMemberCount('trip', this.value);">
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 1.25rem;">
+            <label class="form-label">Trip Name (Optional)</label>
+            <input type="text" name="name" class="form-input" placeholder="e.g. Goa Trip, Manali 2026">
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-block"
+            style="padding: 0.75rem; font-size: 0.95rem; font-weight: 700; background: #0f766e; border-color: #0f766e;">
+            ✨ Create Trip &amp; Generate Passkey
+          </button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+    {% endif %}
+  </div>
+
+  <!-- =========================================================================
+       MODAL 1: ADD CUSTOM CATEGORY MODAL (Room & Trip Sharing)
+       ========================================================================= -->
+  <div id="addSharedCategoryModal" class="modal-backdrop" style="display: none;" onclick="closeOnBackdropClick(event, 'addSharedCategoryModal');">
+    <div class="modal-card" style="max-width: 480px;" onclick="event.stopPropagation();">
+      <div class="modal-header">
+        <div>
+          <div class="modal-eyebrow" id="addSharedCategoryEyebrow">Sharing Hub</div>
+          <h3 class="modal-title">➕ Add Custom Category</h3>
+        </div>
+        <button type="button" class="modal-close-btn" onclick="closeAddSharedCategoryModal();" title="Close">&times;</button>
+      </div>
+
+      <div class="modal-body-section" style="padding: 1.5rem;">
+        <p style="color: var(--text-secondary); font-size: 0.88rem; margin-bottom: 1.25rem; line-height: 1.5;">
+          Enter a name for your new category. It will immediately appear in your category list and bill forms.
+        </p>
+        <div class="form-group" style="margin-bottom: 1.25rem;">
+          <label class="form-label" for="newSharedCategoryInputName">Category Name *</label>
+          <input type="text" id="newSharedCategoryInputName" class="form-input" placeholder="e.g. WiFi / Internet, Cleaning, Snacks, Maintenance" maxlength="50" onkeydown="if(event.key==='Enter'){event.preventDefault();submitNewSharedCategory();}">
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+          <button type="button" class="btn btn-secondary" onclick="closeAddSharedCategoryModal();">Cancel</button>
+          <button type="button" class="btn btn-primary" onclick="submitNewSharedCategory();" style="font-weight: 700;">
+            ✓ Save Category
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       MODAL 2: CATEGORY HISTORY POPUP (Itemized Bills & KPIs for Category)
+       ========================================================================= -->
+  <div id="sharedCategoryHistoryModal" class="modal-backdrop" style="display: none;" onclick="closeOnBackdropClick(event, 'sharedCategoryHistoryModal');">
+    <div class="modal-card" style="max-width: min(820px, calc(100vw - 2.5rem));" onclick="event.stopPropagation();">
+      <div class="modal-header">
+        <div>
+          <div class="modal-eyebrow" id="sharedModalEyebrow">Category Breakdown</div>
+          <h3 class="modal-title" id="sharedModalCategoryTitle">Category Name</h3>
+        </div>
+        <button type="button" class="modal-close-btn" onclick="closeSharedCategoryModal();" title="Close">&times;</button>
+      </div>
+
+      <!-- Quick KPI Strip -->
+      <div class="modal-kpi-grid">
+        <div class="modal-kpi-card">
+          <span class="modal-kpi-label">Total Spent</span>
+          <span class="modal-kpi-value" id="sharedModalCategoryTotal">₹0.00</span>
+        </div>
+        <div class="modal-kpi-card">
+          <span class="modal-kpi-label">Share of Group</span>
+          <span class="modal-kpi-value" id="sharedModalCategoryPercent">0%</span>
+        </div>
+        <div class="modal-kpi-card">
+          <span class="modal-kpi-label">Total Bills</span>
+          <span class="modal-kpi-value" id="sharedModalCategoryCount">0</span>
+        </div>
+      </div>
+
+      <!-- Itemized Bills Table -->
+      <div class="modal-body-section" style="padding: 1.25rem;">
+        <div class="modal-section-title" style="margin-bottom: 0.75rem;">
+          <span>📋 Itemized Bills in this Category</span>
+        </div>
+        <div class="table-responsive" style="max-height: 320px; overflow-y: auto;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Purpose / Description</th>
+                <th>Paid By</th>
+                <th>Split With</th>
+                <th style="text-align: right;">Total Bill (₹)</th>
+                <th style="text-align: right;">Share / Person (₹)</th>
+                {% if not is_viewer %}<th style="text-align: right;">Action</th>{% endif %}
+              </tr>
+            </thead>
+            <tbody id="sharedModalCategoryTableBody">
+              <!-- Dynamically populated via JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="modal-footer">
+        <button type="button" class="btn-export-pdf" onclick="exportSharedCategoryPdf();" title="Export this category's bills to PDF">
+          📄 Export PDF
+        </button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="closeSharedCategoryModal();">
+          Close
+        </button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="filterMainTableFromSharedModal();" title="Filter history table by this category">
+          🔍 Filter in Table
+        </button>
+        {% if not is_viewer %}
+        <button type="button" class="btn btn-primary btn-sm" id="sharedModalAddBillBtn" onclick="quickAddBillForCategory();">
+          ➕ Enter Bill in this Category
+        </button>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       MODAL 3: DETAILED SUBGROUP SPLIT BREAKDOWN (Requirement 6)
+       ========================================================================= -->
+  <div id="memberSplitBreakdownModal" class="modal-backdrop" style="display: none;" onclick="closeOnBackdropClick(event, 'memberSplitBreakdownModal');">
+    <div class="modal-card" style="max-width: min(860px, calc(100vw - 2.5rem));" onclick="event.stopPropagation();">
+      <div class="modal-header">
+        <div>
+          <div class="modal-eyebrow" id="memberBreakdownEyebrow">Room Sharing &bull; Split Breakdown</div>
+          <h3 class="modal-title" id="memberBreakdownTitle">Member Split Details</h3>
+        </div>
+        <button type="button" class="modal-close-btn" onclick="closeMemberSplitBreakdownModal();" title="Close">&times;</button>
+      </div>
+
+      <div class="modal-body-section" style="padding: 1.25rem;">
+        <!-- Member Overall KPI Strip -->
+        <div class="modal-kpi-grid" style="margin-bottom: 1.25rem;">
+          <div class="modal-kpi-card">
+            <span class="modal-kpi-label">Total Spent / Paid</span>
+            <span class="modal-kpi-value" id="memberModalTotalPaid">₹0.00</span>
+          </div>
+          <div class="modal-kpi-card">
+            <span class="modal-kpi-label">Fair Share / Average</span>
+            <span class="modal-kpi-value" id="memberModalFairShare">₹0.00</span>
+          </div>
+          <div class="modal-kpi-card">
+            <span class="modal-kpi-label">Net Balance</span>
+            <span class="modal-kpi-value" id="memberModalNetBalance">₹0.00</span>
+          </div>
+        </div>
+
+        <!-- Explanatory note -->
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: var(--radius-sm); padding: 0.75rem 1rem; margin-bottom: 1.25rem; font-size: 0.85rem; color: #475569; display: flex; align-items: center; gap: 0.6rem;">
+          <span style="font-size: 1.1rem;">💡</span>
+          <div>
+            <strong>Detailed Subgroup Breakdown:</strong> Below are all split scenarios showing amounts spent together, each member's average share, and net balances. <span style="background: #eff6ff; color: #1d4ed8; padding: 0.15rem 0.4rem; border-radius: 4px; font-weight: 700;">Highlighted column</span> represents the selected member.
+          </div>
+        </div>
+
+        <!-- Subgroup Scenarios Container -->
+        <div id="memberScenariosContainer" style="display: flex; flex-direction: column; gap: 1rem;">
+          <!-- Dynamically populated from JS -->
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="closeMemberSplitBreakdownModal();">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Server active mode ('room', 'trip', or empty for landing view)
+const serverActiveMode = "{{ active_mode }}";
+const isViewerMode = {% if is_viewer %}true{% else %}false{% endif %};
+const currentUserId = {{ request.user.id }};
+
+// Serialized JSON data from Django backend
+const roomScenariosData = {{ room_group.scenario_breakdowns_json|default:"[]"|safe }};
+const tripScenariosData = {{ trip_group.scenario_breakdowns_json|default:"[]"|safe }};
+const roomExpensesData = {{ room_group.expenses_history_json|default:"[]"|safe }};
+const tripExpensesData = {{ trip_group.expenses_history_json|default:"[]"|safe }};
+
+let currentCategoryModalMode = 'room';
+let activeCategoryName = '';
+
+function openSharingPane(paneName) {
+  const landingView = document.getElementById('sharingLandingView');
+  const roomPane = document.getElementById('roomSharingPane');
+  const tripPane = document.getElementById('tripSharingPane');
+
+  if (landingView) landingView.style.display = 'none';
+
+  if (paneName === 'room') {
+    if (roomPane) roomPane.style.display = 'flex';
+    if (tripPane) tripPane.style.display = 'none';
+  } else if (paneName === 'trip') {
+    if (tripPane) tripPane.style.display = 'flex';
+    if (roomPane) roomPane.style.display = 'none';
+  }
+
+  // Update browser URL query parameter smoothly
+  const url = new URL(window.location);
+  url.searchParams.set('mode', paneName);
+  window.history.pushState({ pane: paneName }, '', url);
+}
+
+function backToLanding() {
+  const landingView = document.getElementById('sharingLandingView');
+  const roomPane = document.getElementById('roomSharingPane');
+  const tripPane = document.getElementById('tripSharingPane');
+
+  if (roomPane) roomPane.style.display = 'none';
+  if (tripPane) tripPane.style.display = 'none';
+  if (landingView) landingView.style.display = 'flex';
+
+  // Clear query parameter
+  const url = new URL(window.location);
+  url.searchParams.delete('mode');
+  url.searchParams.delete('toggle');
+  window.history.pushState({}, '', url.pathname);
+}
+
+function toggleRoomSetupMode(mode) {
+  const joinBox = document.getElementById('roomJoinBox');
+  const createBox = document.getElementById('roomCreateBox');
+
+  if (mode === 'create') {
+    if (joinBox) joinBox.style.display = 'none';
+    if (createBox) createBox.style.display = 'flex';
+  } else {
+    if (createBox) createBox.style.display = 'none';
+    if (joinBox) joinBox.style.display = 'flex';
+  }
+}
+
+function toggleTripSetupMode(mode) {
+  const joinBox = document.getElementById('tripJoinBox');
+  const createBox = document.getElementById('tripCreateBox');
+
+  if (mode === 'create') {
+    if (joinBox) joinBox.style.display = 'none';
+    if (createBox) createBox.style.display = 'flex';
+  } else {
+    if (createBox) createBox.style.display = 'none';
+    if (joinBox) joinBox.style.display = 'flex';
+  }
+}
+
+function selectMemberCount(type, count, btnElement) {
+  const inputEl = document.getElementById(type + 'TotalMembersInput');
+  if (inputEl) inputEl.value = count;
+
+  const customWrap = document.getElementById(type + 'CustomMembersWrap');
+  if (customWrap) customWrap.style.display = 'none';
+
+  const container = document.getElementById(type + 'MemberPills');
+  const activeClass = (type === 'trip') ? 'sharing-pane__pill-btn--active-trip' : 'sharing-pane__pill-btn--active';
+
+  if (container) {
+    const buttons = container.querySelectorAll('.sharing-pane__pill-btn');
+    buttons.forEach(b => {
+      b.classList.remove('sharing-pane__pill-btn--active');
+      b.classList.remove('sharing-pane__pill-btn--active-trip');
+    });
+  }
+  if (btnElement) btnElement.classList.add(activeClass);
+}
+
+function toggleCustomMemberInput(type, btnElement) {
+  const container = document.getElementById(type + 'MemberPills');
+  const activeClass = (type === 'trip') ? 'sharing-pane__pill-btn--active-trip' : 'sharing-pane__pill-btn--active';
+  if (container) {
+    container.querySelectorAll('.sharing-pane__pill-btn').forEach(b => {
+      b.classList.remove('sharing-pane__pill-btn--active');
+      b.classList.remove('sharing-pane__pill-btn--active-trip');
+    });
+  }
+  if (btnElement) btnElement.classList.add(activeClass);
+  const customWrap = document.getElementById(type + 'CustomMembersWrap');
+  const customField = document.getElementById(type + 'CustomMembersField');
+  if (customWrap) customWrap.style.display = 'block';
+  if (customField) {
+    if (!customField.value) customField.value = '8';
+    applyCustomMemberCount(type, customField.value);
+    customField.focus();
+  }
+}
+
+function applyCustomMemberCount(type, rawVal) {
+  const n = Math.max(2, Math.min(50, parseInt(rawVal, 10) || 2));
+  const inputEl = document.getElementById(type + 'TotalMembersInput');
+  if (inputEl) inputEl.value = n;
+}
+
+function toggleSharedFutureSplit(mode, checkbox) {
+  const box = document.getElementById(mode + 'FutureSplitBox');
+  if (box) {
+    box.style.display = checkbox.checked ? 'block' : 'none';
+    if (checkbox.checked) updateSharedFutureSplitPreview(mode);
+  }
+}
+
+function updateSharedFutureSplitPreview(mode) {
+  const cb = document.getElementById(mode === 'trip' ? 'tripEnableFutureSplit' : 'roomEnableFutureSplit');
+  if (!cb || !cb.checked) return;
+  const amtEl = document.getElementById(mode === 'trip' ? 'tripBillAmount' : 'roomBillAmount');
+  const monthsEl = document.getElementById(mode + 'FutureSplitMonths');
+  const previewEl = document.getElementById(mode + 'FutureSplitPreview');
+  const amt = amtEl ? parseFloat(amtEl.value) : 0;
+  const months = monthsEl ? parseInt(monthsEl.value, 10) : 3;
+  if (!previewEl) return;
+  if (!amt || isNaN(amt) || amt <= 0) {
+    previewEl.textContent = 'Enter bill amount above';
+    return;
+  }
+  const perMonth = (amt / months).toFixed(2);
+  previewEl.textContent = `₹${parseFloat(perMonth).toLocaleString('en-IN', {minimumFractionDigits: 2})} / month (${months} mos)`;
+}
+
+function exportSharingPdf(mode) {
+  const isTrip = (mode === 'trip');
+  const params = new URLSearchParams();
+  params.set('mode', mode);
+  params.set('month', '{{ selected_month }}');
+  params.set('year', '{{ selected_year }}');
+  const pEl = document.getElementById(isTrip ? 'tripFilterPaidBy' : 'roomFilterPaidBy');
+  const sEl = document.getElementById(isTrip ? 'tripFilterSplitWith' : 'roomFilterSplitWith');
+  const cEl = document.getElementById(isTrip ? 'tripFilterCategorySelect' : 'roomFilterCategorySelect');
+  if (pEl && pEl.value !== 'all') params.set('paid_by', pEl.value);
+  if (sEl && sEl.value !== 'all') params.set('split_with', sEl.value);
+  if (cEl && cEl.value !== 'all') params.set('category', cEl.value);
+  window.location.href = "{% url 'export_sharing_pdf' %}?" + params.toString();
+}
+
+function exportSharedCategoryPdf() {
+  const params = new URLSearchParams();
+  params.set('mode', currentCategoryModalMode || 'room');
+  params.set('month', '{{ selected_month }}');
+  params.set('year', '{{ selected_year }}');
+  if (activeCategoryName) params.set('category', activeCategoryName);
+  window.location.href = "{% url 'export_sharing_pdf' %}?" + params.toString();
+}
+
+function copyPasskey(code, btn) {
+  if (!code) return;
+  navigator.clipboard.writeText(code).then(() => {
+    const originalText = btn.innerHTML;
+    btn.innerHTML = 'Copied! 👍';
+    btn.style.background = '#22c55e';
+    btn.style.color = '#ffffff';
+    setTimeout(() => {
+      btn.innerHTML = originalText;
+      btn.style.background = '';
+      btn.style.color = '';
+    }, 2000);
+  }).catch(() => {
+    prompt('Copy your passkey code below:', code);
+  });
+}
+
+// -----------------------------------------------------------------------------
+// Shared Expense Modal & Split Calculations
+// -----------------------------------------------------------------------------
+function openAddSharedExpenseModal(mode) {
+  const modalId = (mode === 'trip') ? 'tripAddBillModal' : 'roomAddBillModal';
+  const modal = document.getElementById(modalId);
+  if (modal) {
+    modal.style.display = 'flex';
+    const amountInput = modal.querySelector('input[type="number"]');
+    if (amountInput) {
+      amountInput.focus();
+    }
+    if (mode === 'trip') {
+      updateTripSplitPreview();
+    } else {
+      updateRoomSplitPreview();
+    }
+  }
+}
+
+function closeAddSharedExpenseModal(mode) {
+  const modalId = (mode === 'trip') ? 'tripAddBillModal' : 'roomAddBillModal';
+  const modal = document.getElementById(modalId);
+  if (modal) {
+    modal.style.display = 'none';
+  }
+}
+
+function closeOnBackdropClick(event, modalId) {
+  if (event.target && event.target.id === modalId) {
+    event.target.style.display = 'none';
+  }
+}
+
+function updateRoomSplitPreview() {
+  const amtInput = document.getElementById('roomBillAmount');
+  const countEl = document.getElementById('roomSplitCount');
+  const perHeadEl = document.getElementById('roomSplitPerHead');
+  if (!amtInput || !countEl || !perHeadEl) return;
+
+  const amt = parseFloat(amtInput.value) || 0;
+  const checkedBoxes = document.querySelectorAll('.room-split-checkbox:checked');
+  const checkedCount = checkedBoxes.length;
+
+  countEl.innerText = `${checkedCount} member${checkedCount === 1 ? '' : 's'}`;
+
+  if (amt > 0 && checkedCount > 0) {
+    const perHead = amt / checkedCount;
+    perHeadEl.innerText = '₹' + perHead.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' / person';
+  } else {
+    perHeadEl.innerText = '₹0.00 / person';
+  }
+}
+
+function updateTripSplitPreview() {
+  const amtInput = document.getElementById('tripBillAmount');
+  const countEl = document.getElementById('tripSplitCount');
+  const perHeadEl = document.getElementById('tripSplitPerHead');
+  if (!amtInput || !countEl || !perHeadEl) return;
+
+  const amt = parseFloat(amtInput.value) || 0;
+  const checkedBoxes = document.querySelectorAll('.trip-split-checkbox:checked');
+  const checkedCount = checkedBoxes.length;
+
+  countEl.innerText = `${checkedCount} member${checkedCount === 1 ? '' : 's'}`;
+
+  if (amt > 0 && checkedCount > 0) {
+    const perHead = amt / checkedCount;
+    perHeadEl.innerText = '₹' + perHead.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' / person';
+  } else {
+    perHeadEl.innerText = '₹0.00 / person';
+  }
+}
+
+function selectAllSplitMembers(mode) {
+  const selector = (mode === 'trip') ? '.trip-split-checkbox' : '.room-split-checkbox';
+  document.querySelectorAll(selector).forEach(cb => {
+    cb.checked = true;
+  });
+  if (mode === 'trip') updateTripSplitPreview();
+  else updateRoomSplitPreview();
+}
+
+function selectOnlyMeSplit(mode, myUserId) {
+  const selector = (mode === 'trip') ? '.trip-split-checkbox' : '.room-split-checkbox';
+  document.querySelectorAll(selector).forEach(cb => {
+    cb.checked = (String(cb.value) === String(myUserId));
+  });
+  if (mode === 'trip') updateTripSplitPreview();
+  else updateRoomSplitPreview();
+}
+
+// -----------------------------------------------------------------------------
+// Edit Shared Expense Modal & Split Calculations
+// -----------------------------------------------------------------------------
+function openEditSharedExpenseModal(mode, id, date, amount, desc, category, paidById, splitIds) {
+  const isTrip = (mode === 'trip');
+  const modalId = isTrip ? 'tripEditBillModal' : 'roomEditBillModal';
+  const formId = isTrip ? 'tripEditExpenseForm' : 'roomEditExpenseForm';
+  const dateId = isTrip ? 'tripEditBillDate' : 'roomEditBillDate';
+  const amtId = isTrip ? 'tripEditBillAmount' : 'roomEditBillAmount';
+  const descId = isTrip ? 'tripEditBillDescription' : 'roomEditBillDescription';
+  const catId = isTrip ? 'tripEditBillCategory' : 'roomEditBillCategory';
+  const payerId = isTrip ? 'tripEditBillPaidBy' : 'roomEditBillPaidBy';
+  const checkboxClass = isTrip ? '.trip-edit-split-checkbox' : '.room-edit-split-checkbox';
+
+  const modal = document.getElementById(modalId);
+  const form = document.getElementById(formId);
+  const dateEl = document.getElementById(dateId);
+  const amtEl = document.getElementById(amtId);
+  const descEl = document.getElementById(descId);
+  const catEl = document.getElementById(catId);
+  const payerEl = document.getElementById(payerId);
+
+  if (form) {
+    form.action = `/sharing/expense/${id}/edit/`;
+  }
+  if (dateEl) dateEl.value = date;
+  if (amtEl) amtEl.value = amount;
+  if (descEl) descEl.value = desc;
+
+  // Check if category exists in select, if not add it
+  if (catEl) {
+    let exists = false;
+    for (let i = 0; i < catEl.options.length; i++) {
+      if (catEl.options[i].value.toLowerCase() === (category || '').toLowerCase()) {
+        catEl.selectedIndex = i;
+        exists = true;
+        break;
+      }
+    }
+    if (!exists && category) {
+      const opt = new Option(category, category);
+      catEl.add(opt, catEl.options.length - 1);
+      catEl.value = category;
+    }
+  }
+
+  if (payerEl) payerEl.value = paidById;
+
+  // Set split checkboxes
+  const splitIdArray = Array.isArray(splitIds) ? splitIds.map(Number) : [];
+  document.querySelectorAll(checkboxClass).forEach(cb => {
+    cb.checked = (splitIdArray.length === 0) || splitIdArray.includes(Number(cb.value));
+  });
+
+  if (modal) {
+    modal.style.display = 'flex';
+  }
+
+  if (isTrip) {
+    updateTripEditSplitPreview();
+  } else {
+    updateRoomEditSplitPreview();
+  }
+}
+
+function closeEditSharedExpenseModal(mode) {
+  const modalId = (mode === 'trip') ? 'tripEditBillModal' : 'roomEditBillModal';
+  const modal = document.getElementById(modalId);
+  if (modal) {
+    modal.style.display = 'none';
+  }
+}
+
+function updateRoomEditSplitPreview() {
+  const amtInput = document.getElementById('roomEditBillAmount');
+  const countEl = document.getElementById('roomEditSplitCount');
+  const perHeadEl = document.getElementById('roomEditSplitPerHead');
+  if (!amtInput || !countEl || !perHeadEl) return;
+
+  const amt = parseFloat(amtInput.value) || 0;
+  const checkedBoxes = document.querySelectorAll('.room-edit-split-checkbox:checked');
+  const checkedCount = checkedBoxes.length;
+
+  countEl.innerText = `${checkedCount} member${checkedCount === 1 ? '' : 's'}`;
+
+  if (amt > 0 && checkedCount > 0) {
+    const perHead = amt / checkedCount;
+    perHeadEl.innerText = '₹' + perHead.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' / person';
+  } else {
+    perHeadEl.innerText = '₹0.00 / person';
+  }
+}
+
+function updateTripEditSplitPreview() {
+  const amtInput = document.getElementById('tripEditBillAmount');
+  const countEl = document.getElementById('tripEditSplitCount');
+  const perHeadEl = document.getElementById('tripEditSplitPerHead');
+  if (!amtInput || !countEl || !perHeadEl) return;
+
+  const amt = parseFloat(amtInput.value) || 0;
+  const checkedBoxes = document.querySelectorAll('.trip-edit-split-checkbox:checked');
+  const checkedCount = checkedBoxes.length;
+
+  countEl.innerText = `${checkedCount} member${checkedCount === 1 ? '' : 's'}`;
+
+  if (amt > 0 && checkedCount > 0) {
+    const perHead = amt / checkedCount;
+    perHeadEl.innerText = '₹' + perHead.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' / person';
+  } else {
+    perHeadEl.innerText = '₹0.00 / person';
+  }
+}
+
+function selectAllEditSplitMembers(mode) {
+  const selector = (mode === 'trip') ? '.trip-edit-split-checkbox' : '.room-edit-split-checkbox';
+  document.querySelectorAll(selector).forEach(cb => {
+    cb.checked = true;
+  });
+  if (mode === 'trip') updateTripEditSplitPreview();
+  else updateRoomEditSplitPreview();
+}
+
+function selectOnlyMeEditSplit(mode, myUserId) {
+  const selector = (mode === 'trip') ? '.trip-edit-split-checkbox' : '.room-edit-split-checkbox';
+  document.querySelectorAll(selector).forEach(cb => {
+    cb.checked = (String(cb.value) === String(myUserId));
+  });
+  if (mode === 'trip') updateTripEditSplitPreview();
+  else updateRoomEditSplitPreview();
+}
+
+// -----------------------------------------------------------------------------
+// Requirement 2: Add Custom Category Modal & Form Handling
+// -----------------------------------------------------------------------------
+let activeAddCategoryMode = 'room';
+
+function openAddSharedCategoryModal(mode) {
+  activeAddCategoryMode = mode || 'room';
+  const modal = document.getElementById('addSharedCategoryModal');
+  const input = document.getElementById('newSharedCategoryInputName');
+  const eyebrow = document.getElementById('addSharedCategoryEyebrow');
+
+  if (eyebrow) {
+    eyebrow.textContent = (mode === 'trip') ? 'Trip Sharing • Add Category' : 'Room Sharing • Add Category';
+  }
+  if (input) {
+    input.value = '';
+  }
+  if (modal) {
+    modal.style.display = 'flex';
+    if (input) setTimeout(() => input.focus(), 50);
+  }
+}
+
+function closeAddSharedCategoryModal() {
+  const modal = document.getElementById('addSharedCategoryModal');
+  if (modal) modal.style.display = 'none';
+}
+
+function submitNewSharedCategory() {
+  const input = document.getElementById('newSharedCategoryInputName');
+  if (!input) return;
+  const raw = input.value.trim();
+  if (!raw) {
+    alert('Please enter a category name.');
+    input.focus();
+    return;
+  }
+  // Title-case category name
+  const catName = raw.charAt(0).toUpperCase() + raw.slice(1);
+
+  // Helper to add option before the custom option
+  const addOptionToSelect = (selectId) => {
+    const sel = document.getElementById(selectId);
+    if (!sel) return;
+    for (let i = 0; i < sel.options.length; i++) {
+      if (sel.options[i].value.toLowerCase() === catName.toLowerCase()) {
+        sel.selectedIndex = i;
+        return;
+      }
+    }
+    const opt = new Option(catName, catName);
+    const customIdx = Array.from(sel.options).findIndex(o => o.value === '__custom__');
+    if (customIdx >= 0) {
+      sel.add(opt, customIdx);
+    } else {
+      sel.add(opt);
+    }
+    sel.value = catName;
+  };
+
+  if (activeAddCategoryMode === 'trip') {
+    addOptionToSelect('tripAddExpenseCategorySelect');
+    addOptionToSelect('tripEditBillCategory');
+    addOptionToSelect('tripFilterCategorySelect');
+  } else {
+    addOptionToSelect('roomAddExpenseCategorySelect');
+    addOptionToSelect('roomEditBillCategory');
+    addOptionToSelect('roomFilterCategorySelect');
+  }
+
+  closeAddSharedCategoryModal();
+}
+
+function handleSharedCategorySelectChange(mode, selectEl) {
+  if (selectEl && selectEl.value === '__custom__') {
+    openAddSharedCategoryModal(mode);
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Requirement 3: Category History Modal (Detailed Bills & KPIs)
+// -----------------------------------------------------------------------------
+function openSharedCategoryModal(mode, categoryName) {
+  currentCategoryModalMode = mode || 'room';
+  activeCategoryName = categoryName;
+
+  const modal = document.getElementById('sharedCategoryHistoryModal');
+  const eyebrowEl = document.getElementById('sharedModalEyebrow');
+  const titleEl = document.getElementById('sharedModalCategoryTitle');
+  const totalEl = document.getElementById('sharedModalCategoryTotal');
+  const percentEl = document.getElementById('sharedModalCategoryPercent');
+  const countEl = document.getElementById('sharedModalCategoryCount');
+  const tableBody = document.getElementById('sharedModalCategoryTableBody');
+  const addBtn = document.getElementById('sharedModalAddBillBtn');
+
+  if (!modal || !tableBody) return;
+
+  const expensesData = (mode === 'trip') ? tripExpensesData : roomExpensesData;
+  const filtered = expensesData.filter(e => (e.category || '').toLowerCase() === categoryName.toLowerCase());
+
+  const totalSpent = filtered.reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
+  const groupTotal = expensesData.reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
+  const percent = groupTotal > 0 ? ((totalSpent / groupTotal) * 100).toFixed(1) : '0.0';
+
+  if (eyebrowEl) eyebrowEl.textContent = (mode === 'trip') ? 'Trip Sharing • Category Details' : 'Room Sharing • Category Details';
+  if (titleEl) titleEl.textContent = categoryName;
+  if (totalEl) totalEl.textContent = '₹' + totalSpent.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (percentEl) percentEl.textContent = percent + '%';
+  if (countEl) countEl.textContent = filtered.length;
+  if (addBtn) addBtn.textContent = '➕ Enter ' + categoryName + ' Bill';
+
+  // Build rows dynamically
+  tableBody.innerHTML = '';
+  if (filtered.length > 0) {
+    filtered.forEach(item => {
+      const tr = document.createElement('tr');
+
+      // Date
+      const tdDate = document.createElement('td');
+      tdDate.style.whiteSpace = 'nowrap';
+      tdDate.style.color = 'var(--text-muted)';
+      tdDate.style.fontSize = '0.85rem';
+      tdDate.textContent = item.date;
+      tr.appendChild(tdDate);
+
+      // Description
+      const tdDesc = document.createElement('td');
+      tdDesc.className = 'col-primary';
+      tdDesc.style.fontWeight = '700';
+      tdDesc.textContent = item.description;
+      tr.appendChild(tdDesc);
+
+      // Paid By
+      const tdPayer = document.createElement('td');
+      tdPayer.textContent = item.paid_by_name;
+      tr.appendChild(tdPayer);
+
+      // Split With
+      const tdSplit = document.createElement('td');
+      tdSplit.innerHTML = `<span class="sharing-split-tag" style="font-size: 0.78rem;">👥 ${item.split_desc}</span>`;
+      tr.appendChild(tdSplit);
+
+      // Total Bill Amount
+      const tdAmt = document.createElement('td');
+      tdAmt.className = 'col-amount';
+      tdAmt.style.textAlign = 'right';
+      tdAmt.style.fontWeight = '800';
+      tdAmt.textContent = '₹' + parseFloat(item.amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      tr.appendChild(tdAmt);
+
+      // Share / Person
+      const tdPerHead = document.createElement('td');
+      tdPerHead.style.textAlign = 'right';
+      tdPerHead.style.fontWeight = '700';
+      tdPerHead.style.color = (mode === 'trip') ? '#0f766e' : '#4338ca';
+      tdPerHead.textContent = '₹' + parseFloat(item.per_head).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      tr.appendChild(tdPerHead);
+
+      // Action column (Edit / Delete if permitted)
+      if (!isViewerMode) {
+        const tdAction = document.createElement('td');
+        tdAction.style.textAlign = 'right';
+        tdAction.style.whiteSpace = 'nowrap';
+
+        if (item.can_edit) {
+          const editBtn = document.createElement('button');
+          editBtn.type = 'button';
+          editBtn.className = 'btn-edit';
+          editBtn.title = 'Edit this bill';
+          editBtn.textContent = '✏️';
+          editBtn.style.marginRight = '0.35rem';
+          editBtn.onclick = function() {
+            closeSharedCategoryModal();
+            openEditSharedExpenseModal(mode, item.id, item.date, item.amount, item.description, item.category, item.paid_by_id, item.split_ids);
+          };
+          tdAction.appendChild(editBtn);
+        }
+
+        if (item.can_delete) {
+          const delForm = document.createElement('form');
+          delForm.method = 'post';
+          delForm.action = `/sharing/expense/${item.id}/delete/`;
+          delForm.style.display = 'inline';
+          delForm.onsubmit = function() {
+            return confirm(`Delete shared bill '₹${item.amount} - ${item.description}'?`);
+          };
+          const csrfInput = document.createElement('input');
+          csrfInput.type = 'hidden';
+          csrfInput.name = 'csrfmiddlewaretoken';
+          csrfInput.value = document.querySelector('[name=csrfmiddlewaretoken]').value;
+          delForm.appendChild(csrfInput);
+
+          const delBtn = document.createElement('button');
+          delBtn.type = 'submit';
+          delBtn.className = 'btn-delete';
+          delBtn.title = 'Delete bill';
+          delBtn.textContent = '🗑️';
+          delForm.appendChild(delBtn);
+
+          tdAction.appendChild(delForm);
+        }
+
+        tr.appendChild(tdAction);
+      }
+
+      tableBody.appendChild(tr);
+    });
+  } else {
+    const trEmpty = document.createElement('tr');
+    trEmpty.innerHTML = `<td colspan="${isViewerMode ? 6 : 7}" class="table-empty-row" style="padding: 1.5rem !important;">No bills recorded in <strong>${categoryName}</strong> yet.</td>`;
+    tableBody.appendChild(trEmpty);
+  }
+
+  modal.style.display = 'flex';
+}
+
+function closeSharedCategoryModal() {
+  const modal = document.getElementById('sharedCategoryHistoryModal');
+  if (modal) modal.style.display = 'none';
+}
+
+function filterMainTableFromSharedModal() {
+  closeSharedCategoryModal();
+  const mode = currentCategoryModalMode;
+  const selectId = (mode === 'trip') ? 'tripFilterCategorySelect' : 'roomFilterCategorySelect';
+  const selectEl = document.getElementById(selectId);
+  if (selectEl) {
+    selectEl.value = activeCategoryName;
+    applySharedBillsFilters(mode);
+  }
+  const sectionId = (mode === 'trip') ? 'tripHistorySection' : 'roomHistorySection';
+  const sec = document.getElementById(sectionId);
+  if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function quickAddBillForCategory() {
+  closeSharedCategoryModal();
+  const mode = currentCategoryModalMode;
+  openAddSharedExpenseModal(mode);
+  const selectId = (mode === 'trip') ? 'tripAddExpenseCategorySelect' : 'roomAddExpenseCategorySelect';
+  const selectEl = document.getElementById(selectId);
+  if (selectEl && activeCategoryName) {
+    selectEl.value = activeCategoryName;
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Requirement 4: Filter Controls Above History Table (Paid By, Split With, Category)
+// -----------------------------------------------------------------------------
+function applySharedBillsFilters(mode) {
+  const isTrip = (mode === 'trip');
+  const paidById = isTrip ? 'tripFilterPaidBy' : 'roomFilterPaidBy';
+  const splitWithId = isTrip ? 'tripFilterSplitWith' : 'roomFilterSplitWith';
+  const catSelectId = isTrip ? 'tripFilterCategorySelect' : 'roomFilterCategorySelect';
+  const rowClass = isTrip ? '.trip-expense-row' : '.room-expense-row';
+  const noMatchRowId = isTrip ? 'tripFilterNoMatchRow' : 'roomFilterNoMatchRow';
+  const liveBadgeId = isTrip ? 'tripFilterLiveBadge' : 'roomFilterLiveBadge';
+  const totalMembers = isTrip ? {{ trip_group.total_members|default:3 }} : {{ room_group.total_members|default:3 }};
+
+  const paidByVal = document.getElementById(paidById) ? document.getElementById(paidById).value : 'all';
+  const splitWithVal = document.getElementById(splitWithId) ? document.getElementById(splitWithId).value : 'all';
+  const catVal = document.getElementById(catSelectId) ? document.getElementById(catSelectId).value : 'all';
+
+  const rows = document.querySelectorAll(rowClass);
+  let visibleCount = 0;
+
+  rows.forEach(row => {
+    const rowPaidBy = row.getAttribute('data-paid-by');
+    const rowCat = (row.getAttribute('data-category') || '').toLowerCase().trim();
+    const splitCount = parseInt(row.getAttribute('data-split-count') || '0', 10);
+    let splitIds = [];
+    try {
+      splitIds = JSON.parse(row.getAttribute('data-split-ids') || '[]');
+    } catch (e) {
+      splitIds = [];
+    }
+
+    let match = true;
+
+    // 1. Paid By check
+    if (paidByVal !== 'all') {
+      if (String(rowPaidBy) !== String(paidByVal)) match = false;
+    }
+
+    // 2. Split With check
+    if (match && splitWithVal !== 'all') {
+      if (splitWithVal === 'all_members') {
+        if (splitCount < totalMembers) match = false;
+      } else {
+        if (!splitIds.includes(Number(splitWithVal))) match = false;
+      }
+    }
+
+    // 3. Category check
+    if (match && catVal !== 'all') {
+      if (rowCat !== catVal.toLowerCase().trim()) match = false;
+    }
+
+    if (match) {
+      row.dataset.filterHidden = '0';
+      visibleCount++;
+    } else {
+      row.dataset.filterHidden = '1';
+      row.style.display = 'none';
+    }
+  });
+
+  if (typeof RupeePaginator !== 'undefined') {
+    RupeePaginator.apply(mode, 1);
+  }
+
+  // No match row
+  const noMatchRow = document.getElementById(noMatchRowId);
+  if (noMatchRow) {
+    noMatchRow.style.display = (visibleCount === 0 && rows.length > 0) ? '' : 'none';
+  }
+
+  // Live filter badge
+  const badge = document.getElementById(liveBadgeId);
+  const isFiltered = (paidByVal !== 'all' || splitWithVal !== 'all' || catVal !== 'all');
+  if (badge) {
+    if (isFiltered) {
+      badge.textContent = `Showing ${visibleCount} of ${rows.length} bills`;
+      badge.style.display = 'inline-block';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+}
+
+function resetSharedBillsFilters(mode) {
+  const isTrip = (mode === 'trip');
+  const paidById = isTrip ? 'tripFilterPaidBy' : 'roomFilterPaidBy';
+  const splitWithId = isTrip ? 'tripFilterSplitWith' : 'roomFilterSplitWith';
+  const catSelectId = isTrip ? 'tripFilterCategorySelect' : 'roomFilterCategorySelect';
+
+  const pEl = document.getElementById(paidById);
+  const sEl = document.getElementById(splitWithId);
+  const cEl = document.getElementById(catSelectId);
+
+  if (pEl) pEl.value = 'all';
+  if (sEl) sEl.value = 'all';
+  if (cEl) cEl.value = 'all';
+
+  applySharedBillsFilters(mode);
+}
+
+// -----------------------------------------------------------------------------
+// Requirement 6: Detailed Subgroup Split Breakdown Pop-up (ABC, AB, AC, etc.)
+// -----------------------------------------------------------------------------
+function openMemberSplitBreakdownModal(mode, memberId, memberName) {
+  const modal = document.getElementById('memberSplitBreakdownModal');
+  const eyebrowEl = document.getElementById('memberBreakdownEyebrow');
+  const titleEl = document.getElementById('memberBreakdownTitle');
+  const totalPaidEl = document.getElementById('memberModalTotalPaid');
+  const fairShareEl = document.getElementById('memberModalFairShare');
+  const netBalanceEl = document.getElementById('memberModalNetBalance');
+  const scenariosContainer = document.getElementById('memberScenariosContainer');
+
+  if (!modal || !scenariosContainer) return;
+
+  const scenarios = (mode === 'trip') ? tripScenariosData : roomScenariosData;
+  const isTrip = (mode === 'trip');
+
+  if (eyebrowEl) {
+    eyebrowEl.textContent = isTrip ? 'Trip Sharing • Detailed Split Breakdown' : 'Room Sharing • Detailed Split Breakdown';
+  }
+  if (titleEl) {
+    titleEl.textContent = `${memberName}'s Expense & Split Breakdown`;
+  }
+
+  // Calculate overall metrics for this member across all scenarios
+  let totalMemberPaid = 0;
+  let totalMemberFairShare = 0;
+
+  scenarios.forEach(sc => {
+    const p = sc.participants.find(part => part.user_id === memberId);
+    if (p) {
+      totalMemberPaid += p.paid;
+      totalMemberFairShare += p.average;
+    }
+  });
+
+  const overallBalance = totalMemberPaid - totalMemberFairShare;
+
+  if (totalPaidEl) {
+    totalPaidEl.textContent = '₹' + totalMemberPaid.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  if (fairShareEl) {
+    fairShareEl.textContent = '₹' + totalMemberFairShare.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  if (netBalanceEl) {
+    if (overallBalance > 0.005) {
+      netBalanceEl.innerHTML = `<span style="color: #16a34a;">+₹${overallBalance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (Extra)</span>`;
+    } else if (overallBalance < -0.005) {
+      netBalanceEl.innerHTML = `<span style="color: #dc2626;">-₹${Math.abs(overallBalance).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (Short)</span>`;
+    } else {
+      netBalanceEl.innerHTML = `<span style="color: #64748b;">₹0.00 (Settled)</span>`;
+    }
+  }
+
+  // Render Subgroup Scenario Blocks
+  scenariosContainer.innerHTML = '';
+
+  if (scenarios.length === 0) {
+    scenariosContainer.innerHTML = `
+      <div class="empty-state" style="padding: 2rem;">
+        <div class="empty-icon">📂</div>
+        <p>No shared bills recorded in this group yet.</p>
+        <span class="empty-hint">Once bills are entered, subgroup split breakdowns (ABC, AB, AC, etc.) will appear here automatically.</span>
+      </div>
+    `;
+  } else {
+    scenarios.forEach(sc => {
+      const block = document.createElement('div');
+      block.className = 'scenario-block';
+
+      // Header
+      const header = document.createElement('div');
+      header.className = 'scenario-block__header';
+      header.innerHTML = `
+        <div class="scenario-block__title">
+          <span class="scenario-block__code-pill">${sc.code}</span>
+          <span>${sc.title}</span>
+        </div>
+        <div style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">
+          ${sc.bills_count} bill${sc.bills_count === 1 ? '' : 's'} &bull; Subtotal: <strong>₹${sc.subtotal.toFixed(2)}</strong>
+        </div>
+      `;
+      block.appendChild(header);
+
+      // Table
+      const table = document.createElement('table');
+      table.className = 'scenario-table';
+
+      // Thead
+      let theadHtml = '<thead><tr><th style="text-align: left; width: 30%;">Metric / Member</th>';
+      sc.participants.forEach(p => {
+        const isSelected = (p.user_id === memberId);
+        theadHtml += `<th class="${isSelected ? 'highlight-cell' : ''}" style="text-align: right;">${p.name} (${p.letter})${isSelected ? ' 👈' : ''}</th>`;
+      });
+      theadHtml += '</tr></thead>';
+
+      // Tbody
+      let tbodyHtml = '<tbody>';
+
+      // Row 1: Total Paid
+      tbodyHtml += '<tr><td style="text-align: left; font-weight: 600; color: #475569;">Total Paid</td>';
+      sc.participants.forEach(p => {
+        const isSelected = (p.user_id === memberId);
+        tbodyHtml += `<td class="${isSelected ? 'highlight-cell' : ''}" style="font-weight: 700; color: #1e293b;">₹${p.paid.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>`;
+      });
+      tbodyHtml += '</tr>';
+
+      // Row 2: Average need to be
+      tbodyHtml += '<tr><td style="text-align: left; font-weight: 600; color: #475569;">Average need to be</td>';
+      sc.participants.forEach(p => {
+        const isSelected = (p.user_id === memberId);
+        tbodyHtml += `<td class="${isSelected ? 'highlight-cell' : ''}" style="font-weight: 600; color: #64748b;">₹${p.average.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>`;
+      });
+      tbodyHtml += '</tr>';
+
+      // Row 3: Balance
+      tbodyHtml += '<tr><td style="text-align: left; font-weight: 700; color: #1e293b;">Net Balance</td>';
+      sc.participants.forEach(p => {
+        const isSelected = (p.user_id === memberId);
+        let statusStyle = 'color: #64748b; font-weight: 700;';
+        if (p.balance_status === 'extra') statusStyle = 'color: #16a34a; font-weight: 800;';
+        else if (p.balance_status === 'short') statusStyle = 'color: #dc2626; font-weight: 800;';
+
+        tbodyHtml += `<td class="${isSelected ? 'highlight-cell' : ''}" style="${statusStyle}">${p.balance_label}</td>`;
+      });
+      tbodyHtml += '</tr>';
+
+      tbodyHtml += '</tbody>';
+      table.innerHTML = theadHtml + tbodyHtml;
+      const tableWrap = document.createElement('div');
+      tableWrap.className = 'table-responsive';
+      tableWrap.appendChild(table);
+      block.appendChild(tableWrap);
+
+      // ---------------------------------------------------------------------
+      // Requirement 2: Settlement Action Bar Below Each Scenario Table
+      // ---------------------------------------------------------------------
+      const settleBar = document.createElement('div');
+      settleBar.className = 'scenario-settle-bar';
+
+      const groupId = (mode === 'trip') ? '{{ trip_group.id }}' : '{{ room_group.id }}';
+      const currentMonth = '{{ selected_month }}';
+      const currentYear = '{{ selected_year }}';
+      const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]') ? document.querySelector('[name=csrfmiddlewaretoken]').value : '';
+
+      if (sc.is_settled) {
+        settleBar.innerHTML = `
+          <div class="scenario-settle-bar__cleared">
+            <span class="scenario-settle-bar__cleared-tag">✓ All Balances Cleared & Settled</span>
+            <span style="font-size: 0.8rem; color: #64748b;">(Differences resolved personally)</span>
+          </div>
+          ${!isViewerMode ? `
+          <form method="post" action="/sharing/group/${groupId}/settle-scenario/" style="margin: 0;">
+            <input type="hidden" name="csrfmiddlewaretoken" value="${csrfToken}">
+            <input type="hidden" name="scenario_code" value="${sc.code}">
+            <input type="hidden" name="participant_ids" value='${sc.participant_ids_json}'>
+            <input type="hidden" name="action" value="unsettle">
+            <input type="hidden" name="month" value="${currentMonth}">
+            <input type="hidden" name="year" value="${currentYear}">
+            <button type="submit" class="btn-reopen" title="Reopen balances if not settled">
+              ↺ Reopen
+            </button>
+          </form>` : ''}
+        `;
+      } else {
+        let instructionsHtml = '';
+        if (sc.settlement_instructions && sc.settlement_instructions.length > 0) {
+          instructionsHtml = `
+            <div class="scenario-settle-bar__instructions">
+              <div style="font-size: 0.78rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">
+                🤝 Settlement to Clear Difference:
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                ${sc.settlement_instructions.map(inst => `<div class="scenario-settle-bar__instruction-item">👉 ${inst}</div>`).join('')}
+              </div>
+            </div>
+          `;
+        } else {
+          instructionsHtml = `
+            <div style="font-size: 0.85rem; color: #16a34a; font-weight: 700;">
+              ✓ No outstanding differences in this subgroup.
+            </div>
+          `;
+        }
+
+        settleBar.innerHTML = `
+          ${instructionsHtml}
+          ${!isViewerMode ? `
+          <form method="post" action="/sharing/group/${groupId}/settle-scenario/" style="margin: 0;" onsubmit="return confirm('Mark ${sc.code} scenario as settled and cleared? This records that differences were paid personally.');">
+            <input type="hidden" name="csrfmiddlewaretoken" value="${csrfToken}">
+            <input type="hidden" name="scenario_code" value="${sc.code}">
+            <input type="hidden" name="participant_ids" value='${sc.participant_ids_json}'>
+            <input type="hidden" name="action" value="settle">
+            <input type="hidden" name="month" value="${currentMonth}">
+            <input type="hidden" name="year" value="${currentYear}">
+            <button type="submit" class="btn-settle" title="Click after paying difference personally">
+              🤝 Settle Up & Clear Difference
+            </button>
+          </form>` : ''}
+        `;
+      }
+
+      block.appendChild(settleBar);
+      scenariosContainer.appendChild(block);
+    });
+  }
+
+  modal.style.display = 'flex';
+}
+
+function closeMemberSplitBreakdownModal() {
+  const modal = document.getElementById('memberSplitBreakdownModal');
+  if (modal) modal.style.display = 'none';
+}
+
+// -----------------------------------------------------------------------------
+// Category Filtering for Shared Bills History (Legacy support)
+// -----------------------------------------------------------------------------
+function filterSharedBillsByCategory(mode, categoryName) {
+  const selectId = (mode === 'trip') ? 'tripFilterCategorySelect' : 'roomFilterCategorySelect';
+  const selectEl = document.getElementById(selectId);
+  if (selectEl) {
+    selectEl.value = categoryName;
+    applySharedBillsFilters(mode);
+  }
+}
+
+function clearSharedBillsCategoryFilter(mode) {
+  resetSharedBillsFilters(mode);
+}
+
+// Handle Browser Back / Forward navigation
+window.addEventListener('popstate', function(event) {
+  const urlParams = new URLSearchParams(window.location.search);
+  const mode = urlParams.get('mode') || urlParams.get('toggle');
+  if (mode === 'room') {
+    openSharingPane('room');
+  } else if (mode === 'trip') {
+    openSharingPane('trip');
+  } else {
+    backToLanding();
+  }
+});
+
+// Initial state on page load
+document.addEventListener('DOMContentLoaded', function() {
+  if (typeof RupeePaginator !== 'undefined') {
+    RupeePaginator.register({
+      key: 'room',
+      tbodyId: 'roomBillsTableBody',
+      rowSelector: 'tr.room-expense-row',
+      controlsId: 'roomHistoryPagination',
+      pageSize: 10
+    });
+    RupeePaginator.register({
+      key: 'trip',
+      tbodyId: 'tripBillsTableBody',
+      rowSelector: 'tr.trip-expense-row',
+      controlsId: 'tripHistoryPagination',
+      pageSize: 10
+    });
+    RupeePaginator.apply('room', 1);
+    RupeePaginator.apply('trip', 1);
+  }
+
+  const rAmt = document.getElementById('roomBillAmount');
+  if (rAmt) rAmt.addEventListener('input', () => updateSharedFutureSplitPreview('room'));
+  const tAmt = document.getElementById('tripBillAmount');
+  if (tAmt) tAmt.addEventListener('input', () => updateSharedFutureSplitPreview('trip'));
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const initialMode = urlParams.get('mode') || urlParams.get('toggle') || serverActiveMode;
+
+  if (initialMode === 'room') {
+    openSharingPane('room');
+  } else if (initialMode === 'trip') {
+    openSharingPane('trip');
+  } else {
+    backToLanding();
+  }
+
+  // Deep-link from Activity Notification (scroll/paginate to bill OR open breakdown modal)
+  const rawHash = (window.location.hash || '').replace(/^#/, '');
+  if (rawHash && (initialMode === 'room' || initialMode === 'trip')) {
+    if (typeof RupeePaginator !== 'undefined' && (rawHash.startsWith('room-exp-') || rawHash.startsWith('trip-exp-'))) {
+      RupeePaginator.revealRowById(initialMode, rawHash);
+    } else {
+      const targetEl = document.getElementById(rawHash);
+      if (targetEl) {
+        setTimeout(() => targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
+      }
+    }
+  }
+
+  const openBreakdownUserId = urlParams.get('open_breakdown');
+  if (openBreakdownUserId && (initialMode === 'room' || initialMode === 'trip')) {
+    const scenarios = (initialMode === 'trip') ? tripScenariosData : roomScenariosData;
+    const uidNum = Number(openBreakdownUserId);
+    let actorName = 'Member';
+    for (let i = 0; i < scenarios.length; i++) {
+      const p = scenarios[i].participants.find(part => part.user_id === uidNum);
+      if (p) {
+        actorName = p.name;
+        break;
+      }
+    }
+    setTimeout(() => openMemberSplitBreakdownModal(initialMode, uidNum, actorName), 150);
+  }
+});
+</script>
+{% endblock %}

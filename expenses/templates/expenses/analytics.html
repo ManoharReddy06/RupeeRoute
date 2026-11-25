@@ -1,0 +1,246 @@
+{% extends "expenses/base.html" %}
+
+{% block title %}Analytics - RupeeRoute{% endblock %}
+
+{% block content %}
+<div class="analytics-hub">
+
+  {% if is_viewer %}
+  <div class="viewer-note-box">
+    <div class="viewer-note-badge">
+      <span class="note-pin">📌</span>
+      <span class="note-title">NOTE:</span>
+    </div>
+    <div class="viewer-note-body">
+      You are viewing <strong>{{ profile.display_name }}</strong>'s RupeeRoute Analytics in <strong>Read-Only Mode</strong>. Hover over any pie slice to inspect exact amounts.
+    </div>
+  </div>
+  {% else %}
+  <div class="sharing-hub__note">
+    <span class="sharing-hub__note-badge">📊 ANALYTICS</span>
+    <div class="sharing-hub__note-body">
+      Overview of your spending across <strong>Personal Tracker</strong>, <strong>Room Sharing</strong>, <strong>Trip Sharing</strong>, and <strong>Lend &amp; Borrow</strong>. Hover over any pie chart slice to view the exact ₹ amount.
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- =========================================================================
+       Top Bar: Month & Year Selection
+       ========================================================================= -->
+  <div class="filter-card">
+    <form method="get" id="analyticsMonthYearForm" class="filter-form">
+      <div class="filter-label">
+        <span>📅 Select Month &amp; Year:</span>
+      </div>
+
+      <div class="filter-controls">
+        <select name="month" class="form-select" onchange="document.getElementById('analyticsMonthYearForm').submit();">
+          {% for num, name in months_list %}
+          <option value="{{ num }}" {% if num == selected_month %}selected{% endif %}>
+            {{ name }}
+          </option>
+          {% endfor %}
+        </select>
+
+        <select name="year" class="form-select" onchange="document.getElementById('analyticsMonthYearForm').submit();">
+          {% for y in years_list %}
+          <option value="{{ y }}" {% if y == selected_year %}selected{% endif %}>
+            {{ y }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="filter-active-indicator">
+        Showing: <strong>{{ period_label }}</strong>
+      </div>
+    </form>
+  </div>
+
+  <!-- =========================================================================
+       2x2 Grid of Interactive Pie Charts
+       ========================================================================= -->
+  <div class="analytics-grid">
+
+    <!-- 1. Personal Tracking Pie Card -->
+    <div class="analytics-card">
+      <div class="analytics-card__header">
+        <div>
+          <h2 class="analytics-card__title">
+            <span>👤</span>
+            <span>Personal Tracking</span>
+          </h2>
+          <span class="analytics-card__subtitle">Category breakdown for {{ period_label }} ({{ personal_count }} entr{{ personal_count|pluralize:"y,ies" }})</span>
+        </div>
+        <span class="badge-pill">Personal + Splits</span>
+      </div>
+
+      <div class="analytics-card__body">
+        <div class="analytics-chart-wrap" id="chartPersonalWrap"></div>
+        <div class="analytics-legend" id="legendPersonal"></div>
+      </div>
+
+      <div class="analytics-card__footer">
+        <div class="analytics-total-box">
+          <span class="analytics-total-label">Total Spent:</span>
+          <span class="analytics-total-value" style="color: #4f46e5;">₹{{ personal_total|floatformat:2 }}</span>
+        </div>
+        <a href="{% url 'home' %}?month={{ selected_month }}&year={{ selected_year }}" class="btn btn-secondary btn-sm">
+          View Details &rarr;
+        </a>
+      </div>
+    </div>
+
+    <!-- 2. Room Tracking Pie Card -->
+    <div class="analytics-card">
+      <div class="analytics-card__header">
+        <div>
+          <h2 class="analytics-card__title">
+            <span>🏠</span>
+            <span>Room Tracking</span>
+          </h2>
+          <span class="analytics-card__subtitle">
+            {% if has_room_group %}Group: {{ room_group_name }} ({{ period_label }}){% else %}No active room sharing group{% endif %}
+          </span>
+        </div>
+        <span class="badge-pill" style="background: #e0f2fe; color: #0369a1; border-color: #bae6fd;">Room Sharing</span>
+      </div>
+
+      <div class="analytics-card__body">
+        <div class="analytics-chart-wrap" id="chartRoomWrap"></div>
+        <div class="analytics-legend" id="legendRoom"></div>
+      </div>
+
+      <div class="analytics-card__footer">
+        <div class="analytics-total-box">
+          <span class="analytics-total-label">Room Total:</span>
+          <span class="analytics-total-value" style="color: #0284c7;">₹{{ room_total|floatformat:2 }}</span>
+        </div>
+        <a href="{% url 'room_tracker' %}?mode=room&month={{ selected_month }}&year={{ selected_year }}" class="btn btn-secondary btn-sm">
+          Open Room &rarr;
+        </a>
+      </div>
+    </div>
+
+    <!-- 3. Trip Sharing Pie Card -->
+    <div class="analytics-card">
+      <div class="analytics-card__header">
+        <div>
+          <h2 class="analytics-card__title">
+            <span>✈️</span>
+            <span>Trip Sharing</span>
+          </h2>
+          <span class="analytics-card__subtitle">
+            {% if has_trip_group %}Group: {{ trip_group_name }} ({{ period_label }}){% else %}No active trip sharing group{% endif %}
+          </span>
+        </div>
+        <span class="badge-pill" style="background: #ccfbf1; color: #0f766e; border-color: #99f6e4;">Trip Sharing</span>
+      </div>
+
+      <div class="analytics-card__body">
+        <div class="analytics-chart-wrap" id="chartTripWrap"></div>
+        <div class="analytics-legend" id="legendTrip"></div>
+      </div>
+
+      <div class="analytics-card__footer">
+        <div class="analytics-total-box">
+          <span class="analytics-total-label">Trip Total:</span>
+          <span class="analytics-total-value" style="color: #0f766e;">₹{{ trip_total|floatformat:2 }}</span>
+        </div>
+        <a href="{% url 'room_tracker' %}?mode=trip&month={{ selected_month }}&year={{ selected_year }}" class="btn btn-secondary btn-sm">
+          Open Trip &rarr;
+        </a>
+      </div>
+    </div>
+
+    <!-- 4. Money Borrow & Lend Pie Card -->
+    <div class="analytics-card">
+      <div class="analytics-card__header">
+        <div>
+          <h2 class="analytics-card__title">
+            <span>💸</span>
+            <span>Money Borrow &amp; Lend</span>
+          </h2>
+          <span class="analytics-card__subtitle">Principal + accrued simple interest overview</span>
+        </div>
+
+        <div class="analytics-card__tabs" id="loanChartTabs">
+          <button type="button" class="analytics-tab-pill analytics-tab-pill--active" onclick="switchLoanPieMode('overview', this);">Overview</button>
+          <button type="button" class="analytics-tab-pill" onclick="switchLoanPieMode('given', this);">Given</button>
+          <button type="button" class="analytics-tab-pill" onclick="switchLoanPieMode('taken', this);">Borrowed</button>
+        </div>
+      </div>
+
+      <div class="analytics-card__body">
+        <div class="analytics-chart-wrap" id="chartLoanWrap"></div>
+        <div class="analytics-legend" id="legendLoan"></div>
+      </div>
+
+      <div class="analytics-card__footer">
+        <div class="analytics-total-box">
+          <span class="analytics-total-label" id="loanPieTotalLabel">Total Lend &amp; Borrow:</span>
+          <span class="analytics-total-value" id="loanPieTotalValue" style="color: #1e293b;">₹{{ loan_overview_total|floatformat:2 }}</span>
+          <span style="font-size: 0.76rem; color: var(--text-muted); font-weight: 600;">
+            (Lent: ₹{{ total_given_expected|floatformat:2 }} &bull; Borrowed: ₹{{ total_taken_expected|floatformat:2 }})
+          </span>
+        </div>
+        <a href="{% url 'lend_borrow' %}" class="btn btn-secondary btn-sm">
+          Manage Ledger &rarr;
+        </a>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Floating Tooltip for Pie Slice Hover -->
+  <div id="analyticsFloatingTooltip" class="analytics-tooltip"></div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const analyticsPayload = {{ analytics_payload_json|safe }};
+
+function switchLoanPieMode(mode, btn) {
+  const container = document.getElementById('loanChartTabs');
+  if (container && btn) {
+    container.querySelectorAll('.analytics-tab-pill').forEach(b => b.classList.remove('analytics-tab-pill--active'));
+    btn.classList.add('analytics-tab-pill--active');
+  }
+
+  const labelEl = document.getElementById('loanPieTotalLabel');
+  const valEl = document.getElementById('loanPieTotalValue');
+
+  if (mode === 'given') {
+    if (labelEl) labelEl.textContent = 'Total Money Given:';
+    if (valEl) {
+      valEl.textContent = analyticsPayload.loan_given.total_formatted;
+      valEl.style.color = '#0f766e';
+    }
+    renderAnalyticsPieChart('chartLoanWrap', 'legendLoan', analyticsPayload.loan_given, 'No money lent records recorded yet.');
+  } else if (mode === 'taken') {
+    if (labelEl) labelEl.textContent = 'Total Money Borrowed:';
+    if (valEl) {
+      valEl.textContent = analyticsPayload.loan_taken.total_formatted;
+      valEl.style.color = '#dc2626';
+    }
+    renderAnalyticsPieChart('chartLoanWrap', 'legendLoan', analyticsPayload.loan_taken, 'No money borrowed records recorded yet.');
+  } else {
+    if (labelEl) labelEl.textContent = 'Total Lend & Borrow:';
+    if (valEl) {
+      valEl.textContent = analyticsPayload.loan_overview.total_formatted;
+      valEl.style.color = '#1e293b';
+    }
+    renderAnalyticsPieChart('chartLoanWrap', 'legendLoan', analyticsPayload.loan_overview, 'No lend or borrow records recorded yet.');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  renderAnalyticsPieChart('chartPersonalWrap', 'legendPersonal', analyticsPayload.personal, 'No personal expenses for {{ period_label }}.');
+  renderAnalyticsPieChart('chartRoomWrap', 'legendRoom', analyticsPayload.room, '{% if has_room_group %}No room bills recorded for {{ period_label }}.{% else %}Join or create a Room Sharing group to track room spend here.{% endif %}');
+  renderAnalyticsPieChart('chartTripWrap', 'legendTrip', analyticsPayload.trip, '{% if has_trip_group %}No trip bills recorded for {{ period_label }}.{% else %}Join or create a Trip Sharing group to track trip spend here.{% endif %}');
+  switchLoanPieMode('overview');
+});
+</script>
+{% endblock %}

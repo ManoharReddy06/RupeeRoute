@@ -1,0 +1,934 @@
+{% extends "expenses/base.html" %}
+
+{% block title %}Lend & Borrow Tracker - RupeeRoute{% endblock %}
+
+{% block content %}
+<div class="lend-borrow-hub">
+
+  <!-- =========================================================================
+       Top Note Banner
+       ========================================================================= -->
+  <div class="sharing-hub__note" style="margin-bottom: 1.5rem;">
+    <span class="sharing-hub__note-badge">📌 NOTE</span>
+    <div class="sharing-hub__note-body">
+      Track money given to or borrowed from others, record expected return dates, and automatically compute simple interest across months or years.
+    </div>
+  </div>
+
+  {% if is_viewer %}
+  <div class="alert alert-info" style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.75rem;">
+    <span style="font-size: 1.35rem;">👀</span>
+    <div>
+      <strong>Viewer Mode (Read-Only)</strong>: You are viewing <strong>{{ profile.full_name|default:profile.user.username }}</strong>'s Lend &amp; Borrow records. Record creation, updates, and settlements are disabled.
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- =========================================================================
+       Tabs Strip: Given (Lent) vs Taken (Borrowed)
+       ========================================================================= -->
+  <div class="loan-tabs-wrapper">
+    <div class="loan-tabs">
+      <button type="button"
+              class="loan-tab-btn {% if active_tab == 'given' %}loan-tab-btn--active-given{% endif %}"
+              onclick="switchLoanTab('given');">
+        <span class="loan-tab-icon">🟢</span>
+        <span class="loan-tab-text">Given to Others (Money Lent / I Gave)</span>
+        <span class="loan-tab-badge loan-tab-badge--given">{{ given_stats.total_records }}</span>
+      </button>
+
+      <button type="button"
+              class="loan-tab-btn {% if active_tab == 'taken' %}loan-tab-btn--active-taken{% endif %}"
+              onclick="switchLoanTab('taken');">
+        <span class="loan-tab-icon">🔴</span>
+        <span class="loan-tab-text">Taken from Others (Money Borrowed / I Took)</span>
+        <span class="loan-tab-badge loan-tab-badge--taken">{{ taken_stats.total_records }}</span>
+      </button>
+    </div>
+
+    {% if not is_viewer %}
+    <div class="loan-tabs-action">
+      <button type="button" class="btn btn-primary" onclick="openAddLoanModal('{{ active_tab }}');" style="font-weight: 700; display: inline-flex; align-items: center; gap: 0.45rem;">
+        <span>➕</span>
+        <span id="btnAddLoanText">{% if active_tab == 'given' %}Record Money Given{% else %}Record Money Taken{% endif %}</span>
+      </button>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- =========================================================================
+       SECTION 1: GIVEN TAB CONTENT
+       ========================================================================= -->
+  <div id="loanPaneGiven" class="loan-pane" {% if active_tab != 'given' %}style="display: none;"{% endif %}>
+    <!-- 4 KPI Cards for Given -->
+    <div class="loan-kpi-grid">
+      <div class="loan-kpi-card">
+        <div class="loan-kpi-header">
+          <span class="loan-kpi-icon">💰</span>
+          <span class="loan-kpi-label">Pending Principal (To Receive)</span>
+        </div>
+        <div class="loan-kpi-amount" style="color: #0f766e;">
+          ₹{{ given_stats.principal_pending|floatformat:2 }}
+        </div>
+        <div class="loan-kpi-subtext">
+          {{ given_stats.pending_count }} active pending loan{{ given_stats.pending_count|pluralize }}
+        </div>
+      </div>
+
+      <div class="loan-kpi-card">
+        <div class="loan-kpi-header">
+          <span class="loan-kpi-icon">📈</span>
+          <span class="loan-kpi-label">Expected Interest</span>
+        </div>
+        <div class="loan-kpi-amount" style="color: #2563eb;">
+          +₹{{ given_stats.interest_pending|floatformat:2 }}
+        </div>
+        <div class="loan-kpi-subtext">
+          Accrued simple interest across pending loans
+        </div>
+      </div>
+
+      <div class="loan-kpi-card active-metric-card">
+        <div class="loan-kpi-header">
+          <span class="loan-kpi-icon">⚖️</span>
+          <span class="loan-kpi-label">Total Expected Return</span>
+        </div>
+        <div class="loan-kpi-amount" style="color: #1e293b;">
+          ₹{{ given_stats.total_pending|floatformat:2 }}
+        </div>
+        <div class="loan-kpi-subtext">
+          Principal + interest to be received back
+        </div>
+      </div>
+
+      <div class="loan-kpi-card">
+        <div class="loan-kpi-header">
+          <span class="loan-kpi-icon">📋</span>
+          <span class="loan-kpi-label">Settlement Summary</span>
+        </div>
+        <div class="loan-kpi-amount" style="font-size: 1.3rem; color: #475569;">
+          {{ given_stats.pending_count }} Pending &bull; {{ given_stats.settled_count }} Settled
+        </div>
+        <div class="loan-kpi-subtext">
+          Lifetime Given: ₹{{ given_stats.lifetime_principal|floatformat:2 }}
+        </div>
+      </div>
+    </div>
+
+    <!-- Filter Toolbar for Given -->
+    <div class="section-card" style="margin-top: 1.5rem; width: 100%;">
+      <div class="section-header">
+        <div class="section-title">
+          <span>🟢</span>
+          <span>Money Given to Others ({{ given_stats.total_records }} Entries)</span>
+        </div>
+        <button type="button" class="btn-export-pdf" onclick="exportLoanPdf('given');" title="Export filtered Money Given records to PDF">
+          📄 Export PDF
+        </button>
+      </div>
+
+      <!-- Live Filters -->
+      <div class="sharing-filters-toolbar" style="margin-bottom: 1.25rem;">
+        <div class="sharing-filters-toolbar__grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+          <div class="sharing-filters-toolbar__item">
+            <label class="sharing-filters-toolbar__label" for="searchGivenPerson">🔍 Search Person</label>
+            <input type="text" id="searchGivenPerson" class="form-input form-input-sm" placeholder="e.g. Rakesh, Sai..." oninput="filterLoanTable('given');">
+          </div>
+          <div class="sharing-filters-toolbar__item">
+            <label class="sharing-filters-toolbar__label" for="filterGivenStatus">Status</label>
+            <select id="filterGivenStatus" class="form-select form-select-sm" onchange="filterLoanTable('given');">
+              <option value="all">All Statuses</option>
+              <option value="pending">⏳ Pending Only</option>
+              <option value="settled">✓ Settled / Returned</option>
+            </select>
+          </div>
+          <div class="sharing-filters-toolbar__item">
+            <label class="sharing-filters-toolbar__label" for="filterGivenInterest">Interest</label>
+            <select id="filterGivenInterest" class="form-select form-select-sm" onchange="filterLoanTable('given');">
+              <option value="all">All Entries</option>
+              <option value="with_interest">📈 With Interest Only</option>
+              <option value="no_interest">Without Interest</option>
+            </select>
+          </div>
+          <div class="sharing-filters-toolbar__item" style="display: flex; align-items: flex-end;">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="resetLoanFilters('given');" style="width: 100%;">
+              ✕ Reset Filters
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Table for Given -->
+      <div class="table-responsive">
+        <table class="data-table" id="givenLoanTable">
+          <thead>
+            <tr>
+              <th>Person</th>
+              <th>Status</th>
+              <th style="text-align: right;">Principal (₹)</th>
+              <th>Given Date</th>
+              <th>Expected Return</th>
+              <th>Interest Terms</th>
+              <th style="text-align: right;">Total Return (₹)</th>
+              <th>Notes</th>
+              {% if not is_viewer %}<th style="text-align: right;">Actions</th>{% endif %}
+            </tr>
+          </thead>
+          <tbody id="givenLoanTableBody">
+            {% for r in given_records %}
+            <tr class="loan-row loan-row--given"
+                data-person="{{ r.person_name|lower }}"
+                data-status="{{ r.status }}"
+                data-interest="{% if r.has_interest %}with_interest{% else %}no_interest{% endif %}"
+                id="loan-row-{{ r.id }}">
+              <td class="col-primary">
+                <strong>{{ r.person_name }}</strong>
+                {% if r.phone %}
+                <div style="font-size: 0.78rem; color: var(--text-muted);">📞 {{ r.phone }}</div>
+                {% endif %}
+              </td>
+              <td>
+                {% if r.status == 'settled' %}
+                <span class="loan-status-badge loan-status-badge--settled">✓ Settled</span>
+                {% else %}
+                <span class="loan-status-badge loan-status-badge--pending">⏳ Pending</span>
+                {% endif %}
+              </td>
+              <td class="col-amount" style="text-align: right; font-weight: 800;">
+                ₹{{ r.amount|floatformat:2 }}
+              </td>
+              <td style="white-space: nowrap; color: var(--text-muted); font-size: 0.85rem;">
+                {{ r.given_date|date:"d/m/Y" }}
+              </td>
+              <td style="white-space: nowrap; font-size: 0.85rem;">
+                {% if r.expected_return_date %}
+                  {{ r.expected_return_date|date:"d/m/Y" }}
+                  {% if r.status == 'pending' and r.expected_return_date < today %}
+                    <span style="display: block; font-size: 0.72rem; color: #dc2626; font-weight: 700;">⚠️ Overdue</span>
+                  {% endif %}
+                {% else %}
+                  <span style="color: var(--text-muted);">-</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if r.has_interest %}
+                <div class="loan-interest-tag" title="Simple Interest: {{ r.interest_description }}">
+                  <span>📈 {{ r.interest_rate }}% / {{ r.interest_period }} ({{ r.duration_value }} {{ r.duration_unit }})</span>
+                  <strong style="color: #2563eb; display: block; font-size: 0.75rem;">+₹{{ r.calculated_interest|floatformat:2 }}</strong>
+                </div>
+                {% else %}
+                <span style="color: var(--text-muted); font-size: 0.82rem;">No Interest (0%)</span>
+                {% endif %}
+              </td>
+              <td style="text-align: right; font-weight: 800; color: #0f766e;">
+                ₹{{ r.total_expected_amount|floatformat:2 }}
+              </td>
+              <td style="font-size: 0.82rem; color: var(--text-secondary); max-width: 140px;">
+                {{ r.notes|default:"-"|truncatechars:35 }}
+              </td>
+              {% if not is_viewer %}
+              <td style="text-align: right; white-space: nowrap;">
+                <form method="post" action="{% url 'toggle_loan_settled' r.id %}" style="display: inline;">
+                  {% csrf_token %}
+                  {% if r.status == 'pending' %}
+                  <button type="submit" class="btn btn-secondary btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.55rem; color: #16a34a; font-weight: 700;" title="Mark as settled & returned">
+                    ✓ Settle
+                  </button>
+                  {% else %}
+                  <button type="submit" class="btn btn-secondary btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.55rem; color: #64748b;" title="Reopen as pending">
+                    ↺ Reopen
+                  </button>
+                  {% endif %}
+                </form>
+
+                <button type="button"
+                        class="btn-edit"
+                        title="Edit record"
+                        onclick="openEditLoanModal({{ r.id }}, 'given', '{{ r.person_name|escapejs }}', '{{ r.phone|default:''|escapejs }}', '{{ r.amount }}', '{{ r.given_date|date:'Y-m-d' }}', '{{ r.expected_return_date|date:'Y-m-d'|default:'' }}', {{ r.has_interest|yesno:'true,false' }}, '{{ r.interest_rate }}', '{{ r.interest_period }}', {{ r.duration_value }}, '{{ r.duration_unit }}', '{{ r.notes|default:''|escapejs }}');">
+                  ✏️
+                </button>
+
+                <form method="post" action="{% url 'delete_loan_record' r.id %}" style="display: inline;" onsubmit="return confirm('Delete entry for {{ r.person_name }}?');">
+                  {% csrf_token %}
+                  <button type="submit" class="btn-delete" title="Delete record">🗑️</button>
+                </form>
+              </td>
+              {% endif %}
+            </tr>
+            {% empty %}
+            <tr id="emptyGivenRow">
+              <td colspan="{% if is_viewer %}8{% else %}9{% endif %}" class="table-empty-row">
+                No money given records yet.{% if not is_viewer %} Click <strong>"Record Money Given"</strong> above to add one!{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+            <tr id="noMatchGivenRow" style="display: none;">
+              <td colspan="{% if is_viewer %}8{% else %}9{% endif %}" class="table-empty-row" style="background: #fafbfc; padding: 2rem !important;">
+                <div style="font-size: 1.6rem; margin-bottom: 0.35rem;">🔍</div>
+                <strong style="color: var(--text-primary); font-size: 0.95rem;">No records match your filters.</strong>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="resetLoanFilters('given');" style="margin-top: 0.75rem;">
+                  ✕ Reset Filters
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div id="givenLoanPagination" class="pagination-bar" style="display: none;"></div>
+    </div>
+  </div>
+
+
+  <!-- =========================================================================
+       SECTION 2: TAKEN TAB CONTENT
+       ========================================================================= -->
+  <div id="loanPaneTaken" class="loan-pane" {% if active_tab != 'taken' %}style="display: none;"{% endif %}>
+    <!-- 4 KPI Cards for Taken -->
+    <div class="loan-kpi-grid">
+      <div class="loan-kpi-card">
+        <div class="loan-kpi-header">
+          <span class="loan-kpi-icon">💳</span>
+          <span class="loan-kpi-label">Pending Principal (To Repay)</span>
+        </div>
+        <div class="loan-kpi-amount" style="color: #dc2626;">
+          ₹{{ taken_stats.principal_pending|floatformat:2 }}
+        </div>
+        <div class="loan-kpi-subtext">
+          {{ taken_stats.pending_count }} active borrowed loan{{ taken_stats.pending_count|pluralize }}
+        </div>
+      </div>
+
+      <div class="loan-kpi-card">
+        <div class="loan-kpi-header">
+          <span class="loan-kpi-icon">📈</span>
+          <span class="loan-kpi-label">Expected Interest Payable</span>
+        </div>
+        <div class="loan-kpi-amount" style="color: #ea580c;">
+          +₹{{ taken_stats.interest_pending|floatformat:2 }}
+        </div>
+        <div class="loan-kpi-subtext">
+          Accrued simple interest payable to lenders
+        </div>
+      </div>
+
+      <div class="loan-kpi-card active-metric-card">
+        <div class="loan-kpi-header">
+          <span class="loan-kpi-icon">⚖️</span>
+          <span class="loan-kpi-label">Total Amount to Repay</span>
+        </div>
+        <div class="loan-kpi-amount" style="color: #1e293b;">
+          ₹{{ taken_stats.total_pending|floatformat:2 }}
+        </div>
+        <div class="loan-kpi-subtext">
+          Principal + interest to clear debt
+        </div>
+      </div>
+
+      <div class="loan-kpi-card">
+        <div class="loan-kpi-header">
+          <span class="loan-kpi-icon">📋</span>
+          <span class="loan-kpi-label">Settlement Summary</span>
+        </div>
+        <div class="loan-kpi-amount" style="font-size: 1.3rem; color: #475569;">
+          {{ taken_stats.pending_count }} Pending &bull; {{ taken_stats.settled_count }} Settled
+        </div>
+        <div class="loan-kpi-subtext">
+          Lifetime Borrowed: ₹{{ taken_stats.lifetime_principal|floatformat:2 }}
+        </div>
+      </div>
+    </div>
+
+    <!-- Filter Toolbar for Taken -->
+    <div class="section-card" style="margin-top: 1.5rem; width: 100%;">
+      <div class="section-header">
+        <div class="section-title">
+          <span>🔴</span>
+          <span>Money Taken from Others ({{ taken_stats.total_records }} Entries)</span>
+        </div>
+        <button type="button" class="btn-export-pdf" onclick="exportLoanPdf('taken');" title="Export filtered Money Taken records to PDF">
+          📄 Export PDF
+        </button>
+      </div>
+
+      <!-- Live Filters -->
+      <div class="sharing-filters-toolbar" style="margin-bottom: 1.25rem;">
+        <div class="sharing-filters-toolbar__grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+          <div class="sharing-filters-toolbar__item">
+            <label class="sharing-filters-toolbar__label" for="searchTakenPerson">🔍 Search Person</label>
+            <input type="text" id="searchTakenPerson" class="form-input form-input-sm" placeholder="e.g. Ramesh, Suresh..." oninput="filterLoanTable('taken');">
+          </div>
+          <div class="sharing-filters-toolbar__item">
+            <label class="sharing-filters-toolbar__label" for="filterTakenStatus">Status</label>
+            <select id="filterTakenStatus" class="form-select form-select-sm" onchange="filterLoanTable('taken');">
+              <option value="all">All Statuses</option>
+              <option value="pending">⏳ Pending Only</option>
+              <option value="settled">✓ Settled / Repaid</option>
+            </select>
+          </div>
+          <div class="sharing-filters-toolbar__item">
+            <label class="sharing-filters-toolbar__label" for="filterTakenInterest">Interest</label>
+            <select id="filterTakenInterest" class="form-select form-select-sm" onchange="filterLoanTable('taken');">
+              <option value="all">All Entries</option>
+              <option value="with_interest">📈 With Interest Only</option>
+              <option value="no_interest">Without Interest</option>
+            </select>
+          </div>
+          <div class="sharing-filters-toolbar__item" style="display: flex; align-items: flex-end;">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="resetLoanFilters('taken');" style="width: 100%;">
+              ✕ Reset Filters
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Table for Taken -->
+      <div class="table-responsive">
+        <table class="data-table" id="takenLoanTable">
+          <thead>
+            <tr>
+              <th>Lender (Person)</th>
+              <th>Status</th>
+              <th style="text-align: right;">Principal (₹)</th>
+              <th>Borrowed Date</th>
+              <th>Expected Repay Date</th>
+              <th>Interest Terms</th>
+              <th style="text-align: right;">Total Repay (₹)</th>
+              <th>Notes</th>
+              {% if not is_viewer %}<th style="text-align: right;">Actions</th>{% endif %}
+            </tr>
+          </thead>
+          <tbody id="takenLoanTableBody">
+            {% for r in taken_records %}
+            <tr class="loan-row loan-row--taken"
+                data-person="{{ r.person_name|lower }}"
+                data-status="{{ r.status }}"
+                data-interest="{% if r.has_interest %}with_interest{% else %}no_interest{% endif %}"
+                id="loan-row-{{ r.id }}">
+              <td class="col-primary">
+                <strong>{{ r.person_name }}</strong>
+                {% if r.phone %}
+                <div style="font-size: 0.78rem; color: var(--text-muted);">📞 {{ r.phone }}</div>
+                {% endif %}
+              </td>
+              <td>
+                {% if r.status == 'settled' %}
+                <span class="loan-status-badge loan-status-badge--settled">✓ Settled</span>
+                {% else %}
+                <span class="loan-status-badge loan-status-badge--pending">⏳ Pending</span>
+                {% endif %}
+              </td>
+              <td class="col-amount" style="text-align: right; font-weight: 800;">
+                ₹{{ r.amount|floatformat:2 }}
+              </td>
+              <td style="white-space: nowrap; color: var(--text-muted); font-size: 0.85rem;">
+                {{ r.given_date|date:"d/m/Y" }}
+              </td>
+              <td style="white-space: nowrap; font-size: 0.85rem;">
+                {% if r.expected_return_date %}
+                  {{ r.expected_return_date|date:"d/m/Y" }}
+                  {% if r.status == 'pending' and r.expected_return_date < today %}
+                    <span style="display: block; font-size: 0.72rem; color: #dc2626; font-weight: 700;">⚠️ Overdue</span>
+                  {% endif %}
+                {% else %}
+                  <span style="color: var(--text-muted);">-</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if r.has_interest %}
+                <div class="loan-interest-tag" title="Simple Interest: {{ r.interest_description }}">
+                  <span>📈 {{ r.interest_rate }}% / {{ r.interest_period }} ({{ r.duration_value }} {{ r.duration_unit }})</span>
+                  <strong style="color: #ea580c; display: block; font-size: 0.75rem;">+₹{{ r.calculated_interest|floatformat:2 }}</strong>
+                </div>
+                {% else %}
+                <span style="color: var(--text-muted); font-size: 0.82rem;">No Interest (0%)</span>
+                {% endif %}
+              </td>
+              <td style="text-align: right; font-weight: 800; color: #dc2626;">
+                ₹{{ r.total_expected_amount|floatformat:2 }}
+              </td>
+              <td style="font-size: 0.82rem; color: var(--text-secondary); max-width: 140px;">
+                {{ r.notes|default:"-"|truncatechars:35 }}
+              </td>
+              {% if not is_viewer %}
+              <td style="text-align: right; white-space: nowrap;">
+                <form method="post" action="{% url 'toggle_loan_settled' r.id %}" style="display: inline;">
+                  {% csrf_token %}
+                  {% if r.status == 'pending' %}
+                  <button type="submit" class="btn btn-secondary btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.55rem; color: #16a34a; font-weight: 700;" title="Mark as settled & repaid">
+                    ✓ Settle
+                  </button>
+                  {% else %}
+                  <button type="submit" class="btn btn-secondary btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.55rem; color: #64748b;" title="Reopen as pending">
+                    ↺ Reopen
+                  </button>
+                  {% endif %}
+                </form>
+
+                <button type="button"
+                        class="btn-edit"
+                        title="Edit record"
+                        onclick="openEditLoanModal({{ r.id }}, 'taken', '{{ r.person_name|escapejs }}', '{{ r.phone|default:''|escapejs }}', '{{ r.amount }}', '{{ r.given_date|date:'Y-m-d' }}', '{{ r.expected_return_date|date:'Y-m-d'|default:'' }}', {{ r.has_interest|yesno:'true,false' }}, '{{ r.interest_rate }}', '{{ r.interest_period }}', {{ r.duration_value }}, '{{ r.duration_unit }}', '{{ r.notes|default:''|escapejs }}');">
+                  ✏️
+                </button>
+
+                <form method="post" action="{% url 'delete_loan_record' r.id %}" style="display: inline;" onsubmit="return confirm('Delete entry for {{ r.person_name }}?');">
+                  {% csrf_token %}
+                  <button type="submit" class="btn-delete" title="Delete record">🗑️</button>
+                </form>
+              </td>
+              {% endif %}
+            </tr>
+            {% empty %}
+            <tr id="emptyTakenRow">
+              <td colspan="{% if is_viewer %}8{% else %}9{% endif %}" class="table-empty-row">
+                No money borrowed records yet.{% if not is_viewer %} Click <strong>"Record Money Taken"</strong> above to add one!{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+            <tr id="noMatchTakenRow" style="display: none;">
+              <td colspan="{% if is_viewer %}8{% else %}9{% endif %}" class="table-empty-row" style="background: #fafbfc; padding: 2rem !important;">
+                <div style="font-size: 1.6rem; margin-bottom: 0.35rem;">🔍</div>
+                <strong style="color: var(--text-primary); font-size: 0.95rem;">No records match your filters.</strong>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="resetLoanFilters('taken');" style="margin-top: 0.75rem;">
+                  ✕ Reset Filters
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div id="takenLoanPagination" class="pagination-bar" style="display: none;"></div>
+    </div>
+  </div>
+
+
+  <!-- =========================================================================
+       MODAL: ADD / EDIT LOAN RECORD MODAL
+       ========================================================================= -->
+  {% if not is_viewer %}
+  <div id="loanRecordModal" class="modal-backdrop" style="display: none;" onclick="closeLoanModalOnBackdrop(event);">
+    <div class="modal-card" style="max-width: 620px;" onclick="event.stopPropagation();">
+      <div class="modal-header">
+        <div>
+          <div class="modal-eyebrow" id="loanModalEyebrow">Lend &amp; Borrow</div>
+          <h3 class="modal-title" id="loanModalTitle">➕ Record Money Given</h3>
+        </div>
+        <button type="button" class="modal-close-btn" onclick="closeLoanModal();" title="Close">&times;</button>
+      </div>
+
+      <form method="post" action="{% url 'add_loan_record' %}" id="loanRecordForm" class="modal-form-shell">
+        <div class="modal-body-section" style="padding: 1.5rem;">
+          {% csrf_token %}
+          <input type="hidden" name="transaction_type" id="loanFormType" value="given">
+
+          <!-- Type Selector Tabs inside Modal -->
+          <div class="loan-type-toggle-group" id="loanTypeToggleRow">
+            <button type="button" class="loan-type-btn loan-type-btn--active-given" id="btnTypeGiven" onclick="selectModalLoanType('given');">
+              🟢 Money Given (I Gave)
+            </button>
+            <button type="button" class="loan-type-btn" id="btnTypeTaken" onclick="selectModalLoanType('taken');">
+              🔴 Money Taken (I Borrowed)
+            </button>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label" id="loanPersonLabel">Person Name (Borrower) *</label>
+              <input type="text" name="person_name" id="loanPersonName" class="form-input" placeholder="e.g. Rakesh Sharma" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Phone Number (Optional)</label>
+              <input type="text" name="phone" id="loanPhone" class="form-input" placeholder="e.g. +91 9876543210">
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label">Amount (₹ INR) *</label>
+              <div style="position: relative;">
+                <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-weight: 700; color: var(--text-muted);">₹</span>
+                <input type="number" name="amount" id="loanAmount" step="0.01" min="0.01" class="form-input" style="padding-left: 28px; font-weight: 700;" placeholder="0.00" oninput="calculateLiveInterestPreview();" required>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label" id="loanDateLabel">Given Date *</label>
+              <input type="date" name="given_date" id="loanGivenDate" class="form-input" value="{{ today|date:'Y-m-d' }}" required>
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 1.25rem;">
+            <label class="form-label">Expected Return / Repayment Date (Optional)</label>
+            <input type="date" name="expected_return_date" id="loanExpectedDate" class="form-input">
+          </div>
+
+          <!-- Checkbox: With Interest? -->
+          <div class="loan-interest-toggle-box">
+            <label class="loan-checkbox-label">
+              <input type="checkbox" name="has_interest" id="loanHasInterestCheckbox" onchange="toggleInterestFields();">
+              <span class="loan-checkbox-text">
+                <strong>📈 With Interest?</strong>
+                <small style="display: block; color: var(--text-muted);">Check if this loan incurs simple interest across months or years</small>
+              </span>
+            </label>
+          </div>
+
+          <!-- Expandable Interest Options Panel -->
+          <div id="loanInterestPanel" class="loan-interest-panel" style="display: none;">
+            <div class="form-grid">
+              <div class="form-group">
+                <label class="form-label">Interest Rate (%) *</label>
+                <div style="position: relative;">
+                  <input type="number" name="interest_rate" id="loanInterestRate" step="0.01" min="0" class="form-input" placeholder="e.g. 10" value="10" oninput="calculateLiveInterestPreview();">
+                  <span style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-weight: 700; color: var(--text-muted);">%</span>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Rate Period *</label>
+                <select name="interest_period" id="loanInterestPeriod" class="form-select" onchange="calculateLiveInterestPreview();">
+                  <option value="month" selected>Per Month (e.g. 10% / month)</option>
+                  <option value="year">Per Year (e.g. 10% / year)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-grid">
+              <div class="form-group">
+                <label class="form-label">Duration *</label>
+                <input type="number" name="duration_value" id="loanDurationValue" min="1" class="form-input" value="6" oninput="calculateLiveInterestPreview();">
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Duration Unit *</label>
+                <select name="duration_unit" id="loanDurationUnit" class="form-select" onchange="calculateLiveInterestPreview();">
+                  <option value="months" selected>Months</option>
+                  <option value="years">Years</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Live Interest Formula Breakdown Box -->
+            <div class="loan-calc-preview" id="loanCalcPreviewBox">
+              <div class="loan-calc-preview__title">
+                <span>🧮 Simple Interest Calculation:</span>
+              </div>
+              <div class="loan-calc-preview__body" id="loanCalcPreviewText">
+                <!-- Live updated by JS -->
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-top: 1.25rem; margin-bottom: 0.25rem;">
+            <label class="form-label">Notes / Purpose (Optional)</label>
+            <input type="text" name="notes" id="loanNotes" class="form-input" placeholder="e.g. Emergency loan for bike service, to be returned in installments">
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeLoanModal();">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btnSubmitLoan" style="font-weight: 700;">
+            ✓ Save Record
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentActiveTab = "{{ active_tab|default:'given' }}";
+const isViewerMode = {% if is_viewer %}true{% else %}false{% endif %};
+
+function switchLoanTab(tabName) {
+  currentActiveTab = tabName;
+  const paneGiven = document.getElementById('loanPaneGiven');
+  const paneTaken = document.getElementById('loanPaneTaken');
+  const btnAddText = document.getElementById('btnAddLoanText');
+
+  const buttons = document.querySelectorAll('.loan-tab-btn');
+  buttons.forEach(b => {
+    b.classList.remove('loan-tab-btn--active-given');
+    b.classList.remove('loan-tab-btn--active-taken');
+  });
+
+  if (tabName === 'given') {
+    if (paneGiven) paneGiven.style.display = 'block';
+    if (paneTaken) paneTaken.style.display = 'none';
+    const activeBtn = document.querySelector('.loan-tab-btn:first-child');
+    if (activeBtn) activeBtn.classList.add('loan-tab-btn--active-given');
+    if (btnAddText) btnAddText.textContent = 'Record Money Given';
+  } else {
+    if (paneGiven) paneGiven.style.display = 'none';
+    if (paneTaken) paneTaken.style.display = 'block';
+    const activeBtn = document.querySelector('.loan-tab-btn:nth-child(2)');
+    if (activeBtn) activeBtn.classList.add('loan-tab-btn--active-taken');
+    if (btnAddText) btnAddText.textContent = 'Record Money Taken';
+  }
+
+  // Update URL query parameter smoothly
+  const url = new URL(window.location);
+  url.searchParams.set('tab', tabName);
+  window.history.pushState({ tab: tabName }, '', url);
+}
+
+// Filter Function for Given and Taken Tables
+function filterLoanTable(tab) {
+  const isGiven = (tab === 'given');
+  const searchInput = document.getElementById(isGiven ? 'searchGivenPerson' : 'searchTakenPerson');
+  const statusSelect = document.getElementById(isGiven ? 'filterGivenStatus' : 'filterTakenStatus');
+  const interestSelect = document.getElementById(isGiven ? 'filterGivenInterest' : 'filterTakenInterest');
+  const noMatchRow = document.getElementById(isGiven ? 'noMatchGivenRow' : 'noMatchTakenRow');
+
+  const query = (searchInput ? searchInput.value : '').toLowerCase().trim();
+  const statusVal = statusSelect ? statusSelect.value : 'all';
+  const interestVal = interestSelect ? interestSelect.value : 'all';
+
+  const rows = document.querySelectorAll(isGiven ? '.loan-row--given' : '.loan-row--taken');
+  let visibleCount = 0;
+
+  rows.forEach(r => {
+    const person = r.getAttribute('data-person') || '';
+    const status = r.getAttribute('data-status') || '';
+    const interest = r.getAttribute('data-interest') || '';
+
+    let match = true;
+    if (query && !person.includes(query)) match = false;
+    if (statusVal !== 'all' && status !== statusVal) match = false;
+    if (interestVal !== 'all' && interest !== interestVal) match = false;
+
+    if (match) {
+      r.dataset.filterHidden = '0';
+      visibleCount++;
+    } else {
+      r.dataset.filterHidden = '1';
+      r.style.display = 'none';
+    }
+  });
+
+  if (typeof RupeePaginator !== 'undefined') {
+    RupeePaginator.apply(tab, 1);
+  }
+
+  if (noMatchRow) {
+    noMatchRow.style.display = (visibleCount === 0 && rows.length > 0) ? '' : 'none';
+  }
+}
+
+function resetLoanFilters(tab) {
+  const isGiven = (tab === 'given');
+  const sInput = document.getElementById(isGiven ? 'searchGivenPerson' : 'searchTakenPerson');
+  const statSelect = document.getElementById(isGiven ? 'filterGivenStatus' : 'filterTakenStatus');
+  const intSelect = document.getElementById(isGiven ? 'filterGivenInterest' : 'filterTakenInterest');
+
+  if (sInput) sInput.value = '';
+  if (statSelect) statSelect.value = 'all';
+  if (intSelect) intSelect.value = 'all';
+
+  filterLoanTable(tab);
+}
+
+// Modal Handlers
+function openAddLoanModal(type) {
+  const modal = document.getElementById('loanRecordModal');
+  const form = document.getElementById('loanRecordForm');
+  const eyebrow = document.getElementById('loanModalEyebrow');
+  const title = document.getElementById('loanModalTitle');
+  const toggleRow = document.getElementById('loanTypeToggleRow');
+
+  if (!modal || !form) return;
+
+  form.action = "{% url 'add_loan_record' %}";
+  if (toggleRow) toggleRow.style.display = 'flex';
+
+  selectModalLoanType(type || currentActiveTab);
+
+  // Reset form fields
+  document.getElementById('loanPersonName').value = '';
+  document.getElementById('loanPhone').value = '';
+  document.getElementById('loanAmount').value = '';
+  document.getElementById('loanGivenDate').value = "{{ today|date:'Y-m-d' }}";
+  document.getElementById('loanExpectedDate').value = '';
+  document.getElementById('loanHasInterestCheckbox').checked = false;
+  document.getElementById('loanInterestRate').value = '10';
+  document.getElementById('loanInterestPeriod').value = 'month';
+  document.getElementById('loanDurationValue').value = '6';
+  document.getElementById('loanDurationUnit').value = 'months';
+  document.getElementById('loanNotes').value = '';
+
+  toggleInterestFields();
+  modal.style.display = 'flex';
+}
+
+function openEditLoanModal(id, type, name, phone, amount, givenDate, expectedDate, hasInterest, rate, period, durationVal, durationUnit, notes) {
+  const modal = document.getElementById('loanRecordModal');
+  const form = document.getElementById('loanRecordForm');
+  const eyebrow = document.getElementById('loanModalEyebrow');
+  const title = document.getElementById('loanModalTitle');
+  const toggleRow = document.getElementById('loanTypeToggleRow');
+
+  if (!modal || !form) return;
+
+  form.action = `/lend-borrow/${id}/edit/`;
+  if (toggleRow) toggleRow.style.display = 'none';
+
+  selectModalLoanType(type);
+
+  if (eyebrow) eyebrow.textContent = 'Modify Record';
+  if (title) title.textContent = `✏️ Edit Record: ${name}`;
+
+  document.getElementById('loanPersonName').value = name;
+  document.getElementById('loanPhone').value = phone || '';
+  document.getElementById('loanAmount').value = amount;
+  document.getElementById('loanGivenDate').value = givenDate;
+  document.getElementById('loanExpectedDate').value = expectedDate || '';
+  document.getElementById('loanHasInterestCheckbox').checked = hasInterest;
+  document.getElementById('loanInterestRate').value = rate || '10';
+  document.getElementById('loanInterestPeriod').value = period || 'month';
+  document.getElementById('loanDurationValue').value = durationVal || '6';
+  document.getElementById('loanDurationUnit').value = durationUnit || 'months';
+  document.getElementById('loanNotes').value = notes || '';
+
+  toggleInterestFields();
+  modal.style.display = 'flex';
+}
+
+function closeLoanModal() {
+  const modal = document.getElementById('loanRecordModal');
+  if (modal) modal.style.display = 'none';
+}
+
+function closeLoanModalOnBackdrop(e) {
+  if (e.target.id === 'loanRecordModal') {
+    closeLoanModal();
+  }
+}
+
+function selectModalLoanType(type) {
+  const typeInput = document.getElementById('loanFormType');
+  const btnGiven = document.getElementById('btnTypeGiven');
+  const btnTaken = document.getElementById('btnTypeTaken');
+  const personLabel = document.getElementById('loanPersonLabel');
+  const dateLabel = document.getElementById('loanDateLabel');
+  const title = document.getElementById('loanModalTitle');
+  const btnSubmit = document.getElementById('btnSubmitLoan');
+
+  if (typeInput) typeInput.value = type;
+
+  if (type === 'given') {
+    if (btnGiven) btnGiven.className = 'loan-type-btn loan-type-btn--active-given';
+    if (btnTaken) btnTaken.className = 'loan-type-btn';
+    if (personLabel) personLabel.textContent = 'Person Name (Borrower) *';
+    if (dateLabel) dateLabel.textContent = 'Given Date *';
+    if (title && !title.textContent.includes('Edit')) title.textContent = '➕ Record Money Given';
+    if (btnSubmit) btnSubmit.textContent = '✓ Save Money Given';
+  } else {
+    if (btnTaken) btnTaken.className = 'loan-type-btn loan-type-btn--active-taken';
+    if (btnGiven) btnGiven.className = 'loan-type-btn';
+    if (personLabel) personLabel.textContent = 'Person Name (Lender) *';
+    if (dateLabel) dateLabel.textContent = 'Borrowed Date *';
+    if (title && !title.textContent.includes('Edit')) title.textContent = '➕ Record Money Taken';
+    if (btnSubmit) btnSubmit.textContent = '✓ Save Money Taken';
+  }
+
+  calculateLiveInterestPreview();
+}
+
+function toggleInterestFields() {
+  const checkbox = document.getElementById('loanHasInterestCheckbox');
+  const panel = document.getElementById('loanInterestPanel');
+  if (panel && checkbox) {
+    panel.style.display = checkbox.checked ? 'block' : 'none';
+    if (checkbox.checked) {
+      calculateLiveInterestPreview();
+    }
+  }
+}
+
+function calculateLiveInterestPreview() {
+  const checkbox = document.getElementById('loanHasInterestCheckbox');
+  if (!checkbox || !checkbox.checked) return;
+
+  const amount = parseFloat(document.getElementById('loanAmount').value) || 0;
+  const rate = parseFloat(document.getElementById('loanInterestRate').value) || 0;
+  const period = document.getElementById('loanInterestPeriod').value;
+  const durVal = parseInt(document.getElementById('loanDurationValue').value, 10) || 1;
+  const durUnit = document.getElementById('loanDurationUnit').value;
+  const previewBody = document.getElementById('loanCalcPreviewText');
+
+  if (!previewBody) return;
+
+  // Convert duration to months
+  const durInMonths = (durUnit === 'years') ? (durVal * 12) : durVal;
+  let interest = 0;
+  let explanation = '';
+
+  if (period === 'month') {
+    // Interest per month = amount * (rate / 100)
+    const perMonthInterest = amount * (rate / 100);
+    interest = perMonthInterest * durInMonths;
+    explanation = `
+      <div><strong>Interest per month:</strong> ${rate}% of ₹${amount.toLocaleString('en-IN', {minimumFractionDigits: 2})} = ₹${perMonthInterest.toLocaleString('en-IN', {minimumFractionDigits: 2})}</div>
+      <div><strong>For ${durInMonths} month${durInMonths > 1 ? 's' : ''}:</strong> ₹${perMonthInterest.toLocaleString('en-IN', {minimumFractionDigits: 2})} × ${durInMonths} = <strong style="color: #2563eb;">₹${interest.toLocaleString('en-IN', {minimumFractionDigits: 2})}</strong></div>
+    `;
+  } else {
+    // Interest per year = amount * (rate / 100) * (months / 12)
+    const annualInterest = amount * (rate / 100);
+    interest = annualInterest * (durInMonths / 12);
+    explanation = `
+      <div><strong>Annual Interest (${rate}%/yr):</strong> ₹${annualInterest.toLocaleString('en-IN', {minimumFractionDigits: 2})}</div>
+      <div><strong>For ${durInMonths} month${durInMonths > 1 ? 's' : ''} (${(durInMonths/12).toFixed(2)} yrs):</strong> <strong style="color: #2563eb;">₹${interest.toLocaleString('en-IN', {minimumFractionDigits: 2})}</strong></div>
+    `;
+  }
+
+  const total = amount + interest;
+
+  previewBody.innerHTML = `
+    <div style="margin-bottom: 0.4rem; color: #475569;">
+      For <strong>₹${amount.toLocaleString('en-IN', {minimumFractionDigits: 2})}</strong> at <strong>${rate}% interest per ${period}</strong> for <strong>${durVal} ${durUnit}</strong>:
+    </div>
+    ${explanation}
+    <div style="margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px dashed #cbd5e1; font-size: 0.95rem;">
+      🎯 <strong>Total Return / Repayment Amount:</strong> <span style="font-size: 1.15rem; font-weight: 800; color: #0f766e;">₹${total.toLocaleString('en-IN', {minimumFractionDigits: 2})}</span>
+    </div>
+  `;
+}
+
+function exportLoanPdf(tab) {
+  const isGiven = (tab === 'given');
+  const params = new URLSearchParams();
+  params.set('tab', tab);
+  const sInput = document.getElementById(isGiven ? 'searchGivenPerson' : 'searchTakenPerson');
+  const statSel = document.getElementById(isGiven ? 'filterGivenStatus' : 'filterTakenStatus');
+  const intSel = document.getElementById(isGiven ? 'filterGivenInterest' : 'filterTakenInterest');
+  if (sInput && sInput.value.trim()) params.set('person', sInput.value.trim());
+  if (statSel && statSel.value !== 'all') params.set('status', statSel.value);
+  if (intSel && intSel.value !== 'all') params.set('interest', intSel.value);
+  window.location.href = "{% url 'export_lend_borrow_pdf' %}?" + params.toString();
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  if (typeof RupeePaginator !== 'undefined') {
+    RupeePaginator.register({
+      key: 'given',
+      tbodyId: 'givenLoanTableBody',
+      rowSelector: 'tr.loan-row--given',
+      controlsId: 'givenLoanPagination',
+      pageSize: 10
+    });
+    RupeePaginator.register({
+      key: 'taken',
+      tbodyId: 'takenLoanTableBody',
+      rowSelector: 'tr.loan-row--taken',
+      controlsId: 'takenLoanPagination',
+      pageSize: 10
+    });
+    RupeePaginator.apply('given', 1);
+    RupeePaginator.apply('taken', 1);
+  }
+});
+</script>
+{% endblock %}
