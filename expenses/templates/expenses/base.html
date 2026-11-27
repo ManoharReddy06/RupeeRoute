@@ -25,6 +25,7 @@
 <body>
   {% if user.is_authenticated %}
   <div class="app-wrapper">
+    <div class="sidebar-backdrop" id="sidebarBackdrop" onclick="closeMobileSidebar();"></div>
     <!-- Left Sidebar -->
     <aside class="app-sidebar" id="appSidebar">
       <div class="sidebar-header">
@@ -32,6 +33,7 @@
           <span class="brand-logo">₹</span>
           <span class="brand-text">RupeeRoute</span>
         </a>
+        <button type="button" class="mobile-sidebar-close" id="mobileSidebarClose" onclick="closeMobileSidebar();" aria-label="Close Navigation Menu" title="Close Menu">&times;</button>
       </div>
 
       <div class="sidebar-menu">
@@ -68,6 +70,11 @@
       <!-- Top Navbar with Breadcrumb & Three-line Menu -->
       <header class="app-topbar">
         <div class="topbar-left">
+          <button type="button" class="mobile-sidebar-toggle" id="mobileSidebarToggle" onclick="toggleMobileSidebar(event);" aria-label="Open Navigation Menu" aria-expanded="false" aria-controls="appSidebar" title="Menu">
+            <span class="mobile-sidebar-toggle__bar"></span>
+            <span class="mobile-sidebar-toggle__bar"></span>
+            <span class="mobile-sidebar-toggle__bar"></span>
+          </button>
           <div class="topbar-title">
             {% if current_tracker == 'analytics' %}
               <span class="topbar-icon">📊</span> Analytics Overview
@@ -238,7 +245,7 @@
   </div> <!-- /app-wrapper -->
   {% endif %}
 
-  <script src="{% static 'js/main.js' %}"></script>
+  <script src="{% static 'js/main.js' %}?v={% now 'U' %}"></script>
   {% block extra_js %}{% endblock %}
 </body>
 </html>

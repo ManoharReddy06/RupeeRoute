@@ -17,6 +17,43 @@ function toggleTheme() {
   syncThemeIcon();
 }
 
+function openMobileSidebar() {
+  const sidebar = document.getElementById('appSidebar');
+  const backdrop = document.getElementById('sidebarBackdrop');
+  const toggleBtn = document.getElementById('mobileSidebarToggle');
+  const userDropdown = document.getElementById('userDropdownMenu');
+  const notifDropdown = document.getElementById('notificationDropdownMenu');
+  if (userDropdown) userDropdown.style.display = 'none';
+  if (notifDropdown) notifDropdown.style.display = 'none';
+  if (sidebar) sidebar.classList.add('is-open');
+  if (backdrop) backdrop.classList.add('is-open');
+  if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'true');
+  document.body.classList.add('mobile-sidebar-open');
+}
+
+function closeMobileSidebar() {
+  const sidebar = document.getElementById('appSidebar');
+  const backdrop = document.getElementById('sidebarBackdrop');
+  const toggleBtn = document.getElementById('mobileSidebarToggle');
+  if (sidebar) sidebar.classList.remove('is-open');
+  if (backdrop) backdrop.classList.remove('is-open');
+  if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
+  document.body.classList.remove('mobile-sidebar-open');
+}
+
+function toggleMobileSidebar(event) {
+  if (event) {
+    event.stopPropagation();
+    event.preventDefault();
+  }
+  const sidebar = document.getElementById('appSidebar');
+  if (sidebar && sidebar.classList.contains('is-open')) {
+    closeMobileSidebar();
+  } else {
+    openMobileSidebar();
+  }
+}
+
 document.addEventListener('DOMContentLoaded', function () {
   syncThemeIcon();
   // Auto dismiss flash messages after 4 seconds
@@ -26,6 +63,27 @@ document.addEventListener('DOMContentLoaded', function () {
       setTimeout(function () { el.remove(); }, 300);
     });
   }, 4000);
+
+  // Close mobile sidebar after tapping a navigation item or pressing Escape
+  document.querySelectorAll('#appSidebar .sidebar-item').forEach(function (link) {
+    link.addEventListener('click', function () {
+      if (window.innerWidth < 960) {
+        closeMobileSidebar();
+      }
+    });
+  });
+
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape') {
+      closeMobileSidebar();
+    }
+  });
+
+  window.addEventListener('resize', function () {
+    if (window.innerWidth >= 960) {
+      closeMobileSidebar();
+    }
+  });
 });
 
 // Toggle User Dropdown Menu
@@ -34,6 +92,7 @@ function toggleUserDropdown(event) {
     event.stopPropagation();
     event.preventDefault();
   }
+  closeMobileSidebar();
   const notifDropdown = document.getElementById('notificationDropdownMenu');
   if (notifDropdown) notifDropdown.style.display = 'none';
   const dropdown = document.getElementById('userDropdownMenu');
@@ -49,6 +108,7 @@ function toggleNotificationDropdown(event) {
     event.stopPropagation();
     event.preventDefault();
   }
+  closeMobileSidebar();
   const userDropdown = document.getElementById('userDropdownMenu');
   if (userDropdown) userDropdown.style.display = 'none';
   const dropdown = document.getElementById('notificationDropdownMenu');
@@ -242,15 +302,25 @@ function renderAnalyticsPieChart(chartWrapId, legendId, dataset, emptyHintText) 
   const cy = 110;
   const r = 92;
 
-  function showTip(evt, slice) {
+  function showTip(evt, slice, targetEl) {
     if (!tooltip) return;
     tooltip.innerHTML = `
       <div>${escapeHtml(slice.name)} (${slice.percentage}%)</div>
       <span class="analytics-tooltip__amount">${escapeHtml(slice.amount_formatted)}</span>
     `;
     tooltip.style.display = 'block';
-    const x = Math.min(window.innerWidth - 190, Math.max(10, evt.clientX + 14));
-    const y = Math.max(10, evt.clientY - 56);
+    let clientX = evt && typeof evt.clientX === 'number' ? evt.clientX : 0;
+    let clientY = evt && typeof evt.clientY === 'number' ? evt.clientY : 0;
+    if ((!clientX && !clientY) && targetEl && targetEl.getBoundingClientRect) {
+      const rect = targetEl.getBoundingClientRect();
+      clientX = rect.left + rect.width / 2;
+      clientY = rect.top + rect.height / 2;
+    }
+    const tipWidth = tooltip.offsetWidth || 180;
+    const tipHeight = tooltip.offsetHeight || 48;
+    const maxX = Math.max(10, window.innerWidth - tipWidth - 12);
+    const x = Math.min(maxX, Math.max(10, clientX - (window.innerWidth <= 640 ? tipWidth / 2 : -14)));
+    const y = Math.max(10, clientY - tipHeight - 12);
     tooltip.style.left = x + 'px';
     tooltip.style.top = y + 'px';
   }
@@ -264,6 +334,22 @@ function renderAnalyticsPieChart(chartWrapId, legendId, dataset, emptyHintText) 
     const leg = legend.querySelector(`[data-legend-idx="${idx}"]`);
     if (shape) shape.classList.toggle('is-hovered', active);
     if (leg) leg.classList.toggle('is-hovered', active);
+  }
+
+  function clearAllChartHighlights() {
+    document.querySelectorAll('.analytics-pie-slice.is-hovered, .analytics-legend-item.is-hovered').forEach(function (el) {
+      el.classList.remove('is-hovered');
+    });
+  }
+
+  if (!window.__analyticsTipDocBound) {
+    window.__analyticsTipDocBound = true;
+    document.addEventListener('click', function (evt) {
+      if (!evt.target.closest('.analytics-pie-slice') && !evt.target.closest('.analytics-legend-item')) {
+        clearAllChartHighlights();
+        hideTip();
+      }
+    });
   }
 
   let currentAngle = -Math.PI / 2;
@@ -305,14 +391,20 @@ function renderAnalyticsPieChart(chartWrapId, legendId, dataset, emptyHintText) 
     shape.setAttribute('data-slice-idx', idx);
     shape.addEventListener('mouseenter', function (evt) {
       highlightPair(idx, true);
-      showTip(evt, slice);
+      showTip(evt, slice, shape);
     });
     shape.addEventListener('mousemove', function (evt) {
-      showTip(evt, slice);
+      showTip(evt, slice, shape);
     });
     shape.addEventListener('mouseleave', function () {
       highlightPair(idx, false);
       hideTip();
+    });
+    shape.addEventListener('click', function (evt) {
+      evt.stopPropagation();
+      clearAllChartHighlights();
+      highlightPair(idx, true);
+      showTip(evt, slice, shape);
     });
     svg.appendChild(shape);
   });
@@ -344,7 +436,7 @@ function renderAnalyticsPieChart(chartWrapId, legendId, dataset, emptyHintText) 
 
   wrap.appendChild(svg);
 
-  // Legend: Only Category Name and Percentage until hover!
+  // Legend: Only Category Name and Percentage until hover or tap!
   slices.forEach(function (slice, idx) {
     const item = document.createElement('div');
     item.className = 'analytics-legend-item';
@@ -358,14 +450,20 @@ function renderAnalyticsPieChart(chartWrapId, legendId, dataset, emptyHintText) 
     `;
     item.addEventListener('mouseenter', function (evt) {
       highlightPair(idx, true);
-      showTip(evt, slice);
+      showTip(evt, slice, item);
     });
     item.addEventListener('mousemove', function (evt) {
-      showTip(evt, slice);
+      showTip(evt, slice, item);
     });
     item.addEventListener('mouseleave', function () {
       highlightPair(idx, false);
       hideTip();
+    });
+    item.addEventListener('click', function (evt) {
+      evt.stopPropagation();
+      clearAllChartHighlights();
+      highlightPair(idx, true);
+      showTip(evt, slice, item);
     });
     legend.appendChild(item);
   });
